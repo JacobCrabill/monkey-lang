@@ -37,6 +37,7 @@ pub const TokenType = enum {
     RETURN,
     TRUE,
     FALSE,
+    EXIT,
 };
 
 pub const Token = struct {
@@ -59,6 +60,7 @@ pub const Keywords = [_]Token{
     Token.init(.RETURN, "return"),
     Token.init(.TRUE, "true"),
     Token.init(.FALSE, "false"),
+    Token.init(.EXIT, "exit"),
 };
 
 /// Check for keywords and return the keyword type, or identifier

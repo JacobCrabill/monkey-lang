@@ -4,7 +4,7 @@ const Tokens = @import("token.zig");
 const TokenType = Tokens.TokenType;
 const Token = Tokens.Token;
 
-const Lexer = struct {
+pub const Lexer = struct {
     const Self = @This();
     input: []const u8 = undefined,
     cursor: usize = 0,
