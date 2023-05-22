@@ -34,6 +34,7 @@ pub fn build(b: *std.build.Builder) void {
 
     // Add unit tests
     addTest(b, "test-lexer", "Run Lexer unit tests", "src/lexer.zig", optimize);
+    addTest(b, "test-parser", "Run parser unit tests", "src/parser.zig", optimize);
 }
 
 /// Add a unit test step using the given file
