@@ -55,6 +55,7 @@ const Parser = struct {
             return true;
         }
 
+        self.peekError(kind);
         return false;
     }
 
@@ -68,9 +69,14 @@ const Parser = struct {
         return self.errors.items;
     }
 
-    pub fn peekError(self: *Self, kind: TokenType) !void {
-        const msg = try std.fmt.allocPrint(self.alloc, "Expected next token to be {any}, got {any} instead", .{ kind, self.cur_token.kind });
-        try self.errors.append(msg);
+    pub fn peekError(self: *Self, kind: TokenType) void {
+        const fmt = "Expected next token to be {any}, got {any} instead";
+        const msg = std.fmt.allocPrint(self.alloc, fmt, .{ kind, self.cur_token.kind }) catch {
+            @panic("ERROR: Cannot alloc for string format!");
+        };
+        self.errors.append(msg) catch {
+            @panic("ERROR: Cannot alloc for new parser error!");
+        };
     }
 
     /// Parse the tokens into a Program of statements
