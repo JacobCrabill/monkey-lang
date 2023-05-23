@@ -377,9 +377,8 @@ test "prefix expressions" {
     defer prog.deinit();
 
     try checkParseErrors(parser);
-    try prog.print(std.io.getStdErr().writer());
 
-    try std.testing.expect(prog.statements.items.len == 2);
+    try std.testing.expect(prog.statements.items.len == expected.len);
 
     for (prog.statements.items, expected) |stmt, res| {
         const expr_s: ExpressionStatement = stmt.expression_statement;
@@ -390,5 +389,66 @@ test "prefix expressions" {
 
         const integer_literal: ast.IntegerLiteral = pfx.right.?.integer_literal;
         try std.testing.expect(integer_literal.value == res.value);
+    }
+}
+
+test "infix expressions" {
+    const input =
+        \\1 + 5;
+        \\1 - 5;
+        \\1 * 5;
+        \\1 / 5;
+        \\1 > 5;
+        \\1 < 5;
+        \\1 == 5;
+        \\1 != 5;
+    ;
+
+    const Result = struct {
+        const Self = @This();
+        input: []const u8,
+        lval: i64,
+        operator: []const u8,
+        rval: i64,
+        pub fn init(in: []const u8, lval: i64, op: []const u8, rval: i64) Self {
+            return .{
+                .input = in,
+                .lval = lval,
+                .operator = op,
+                .rval = rval,
+            };
+        }
+    };
+    const expected = [_]Result{
+        Result.init("1 + 5;", 1, "+", 5),
+        Result.init("1 - 5;", 1, "-", 5),
+        Result.init("1 * 5;", 1, "*", 5),
+        Result.init("1 / 5;", 1, "/", 5),
+        Result.init("1 > 5;", 1, ">", 5),
+        Result.init("1 < 5;", 1, "<", 5),
+        Result.init("1 == 5;", 1, "==", 5),
+        Result.init("1 != 5;", 1, "!=", 5),
+    };
+
+    // TODO: Construct expected AST, write AST comparison fn
+
+    var lex = Lexer.Lexer.init(input);
+    var parser = Parser.init(std.testing.allocator, &lex);
+
+    var prog: Program = try parser.parseProgram();
+    defer prog.deinit();
+
+    try checkParseErrors(parser);
+    try prog.print(std.io.getStdErr().writer());
+
+    try std.testing.expect(prog.statements.items.len == expected.len);
+
+    for (prog.statements.items, expected) |stmt, res| {
+        const expr: ast.Expression = stmt.expression_statement.value.?;
+        const lval = expr.infix_expr.left.?.integer_literal.value;
+        const rval = expr.infix_expr.right.?.integer_literal.value;
+
+        try std.testing.expect(lval == res.lval);
+        try std.testing.expect(rval == res.rval);
     }
 }

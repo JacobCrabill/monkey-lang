@@ -79,6 +79,7 @@ pub const Expression = union(enum) {
     identifier: Identifier,
     integer_literal: IntegerLiteral,
     prefix_expr: PrefixExpression,
+    infix_expr: InfixExpression,
 
     pub fn deinit(self: *Self) void {
         switch (self.*) {
@@ -146,6 +147,42 @@ pub const PrefixExpression = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        if (self.right) |_| {
+            self.alloc.destroy(self.right.?);
+        }
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("{s}(", .{self.operator});
+        if (self.right) |right| {
+            try right.print(stream);
+        } else {
+            try stream.print("null", .{});
+        }
+        try stream.print(")", .{});
+    }
+};
+
+pub const InfixExpression = struct {
+    const Self = @This();
+    alloc: Allocator,
+    token: Tokens.Token,
+    left: ?*Expression,
+    operator: []const u8,
+    right: ?*Expression,
+
+    pub fn createLeft(self: *Self) !void {
+        self.left = try self.alloc.create(Expression);
+    }
+
+    pub fn createRight(self: *Self) !void {
+        self.right = try self.alloc.create(Expression);
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.left) |_| {
+            self.alloc.destroy(self.left.?);
+        }
         if (self.right) |_| {
             self.alloc.destroy(self.right.?);
         }
