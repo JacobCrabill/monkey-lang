@@ -42,7 +42,7 @@ pub const TokenType = enum {
 
 pub const Token = struct {
     kind: TokenType = .ILLEGAL,
-    literal: []const u8 = undefined,
+    literal: []const u8 = "",
 
     pub fn init(kind: TokenType, literal: []const u8) Token {
         return Token{

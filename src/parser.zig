@@ -9,9 +9,22 @@ const Tokens = @import("token.zig");
 
 const Program = ast.Program;
 const Statement = ast.Statement;
-const LetStatement = ast.LetStatement;
+const ST = ast.StatementType;
 const Token = Tokens.Token;
 const TokenType = Tokens.TokenType;
+const LetStatement = ast.LetStatement;
+const ReturnStatement = ast.ReturnStatement;
+const ExpressionStatement = ast.ExpressionStatement;
+
+const Operators = enum(u8) {
+    LOWEST,
+    EQUALS, // ==
+    LESSGREATER, // > or <
+    SUM, // +
+    PRODUCT, // *
+    PREFIX, // -X or !X
+    CALL, // function()
+};
 
 const Parser = struct {
     const Self = @This();
@@ -96,24 +109,18 @@ const Parser = struct {
 
     /// Parse a single statement
     pub fn parseStatement(self: *Self) ?Statement {
-        switch (self.cur_token.kind) {
-            .LET => {
-                const let_statement = self.parseLetStatement();
-                if (let_statement) |s| {
-                    return Statement{ .let_statement = s };
-                } else {
-                    return null;
-                }
-            },
-            else => return null,
-        }
+        return switch (self.cur_token.kind) {
+            .LET => self.parseLetStatement(),
+            .RETURN => self.parseReturnStatement(),
+            else => self.parseExpressionStatement(),
+        };
     }
 
-    pub fn parseLetStatement(self: *Self) ?LetStatement {
+    pub fn parseLetStatement(self: *Self) ?Statement {
         var ls = LetStatement{
             .token = self.cur_token,
-            .ident = undefined,
-            .value = undefined,
+            .ident = Token{},
+            .value = null,
         };
 
         if (!self.expectPeek(.IDENT))
@@ -124,13 +131,74 @@ const Parser = struct {
         if (!self.expectPeek(.EQUAL))
             return null;
 
+        self.nextToken();
+
+        ls.value = self.parseExpression(.LOWEST);
+
         // TODO: We're continuing until the semicolon (or EOF)
         // TODO: No expressions (yet....)
         while (!(self.curTokenIs(.SEMI) or self.curTokenIs(.EOF))) {
             self.nextToken();
         }
 
-        return ls;
+        return Statement{ .let_statement = ls };
+    }
+
+    pub fn parseReturnStatement(self: *Self) ?Statement {
+        var rs = ReturnStatement{
+            .token = self.cur_token,
+            .value = null,
+        };
+
+        self.nextToken();
+
+        rs.value = self.parseExpression(.LOWEST);
+
+        // TODO: Parse expression
+        while (!(self.curTokenIs(.SEMI) or self.curTokenIs(.EOF)))
+            self.nextToken();
+
+        return Statement{ .return_statement = rs };
+    }
+
+    pub fn parseExpressionStatement(self: *Self) ?Statement {
+        var es = ExpressionStatement{
+            .token = self.cur_token,
+            .value = null,
+        };
+
+        if (self.nextTokenIs(.SEMI))
+            self.nextToken();
+
+        return Statement{ .expression_statement = es };
+    }
+
+    fn parseExpression(self: *Self, _: Operators) ?ast.Expression {
+        // Try parsing the operator in the prefix position, and return the result
+        if (self.parsePrefixExpression(self.cur_token.kind)) |expr| {
+            return expr;
+        }
+        return null;
+    }
+
+    fn parsePrefixExpression(self: *Self, kind: TokenType) ?ast.Expression {
+        return switch (kind) {
+            .IDENT => self.parseIdentifier(),
+            .INT => self.parseIntegerLiteral(),
+            else => null,
+        };
+    }
+
+    fn parseIdentifier(self: *Self) ast.Expression {
+        const ident = ast.Identifier.init(self.cur_token.kind, self.cur_token.literal);
+        return ast.Expression{ .identifier = ident };
+    }
+
+    fn parseIntegerLiteral(self: *Self) ast.Expression {
+        // TODO: Catch error and append message to errors
+        // 'Could not parse {s} as integer"
+        const lit = ast.IntegerLiteral.init(self.cur_token);
+        return ast.Expression{ .integer_literal = lit };
     }
 };
 
@@ -179,10 +247,78 @@ test "let statements" {
         var ls = statement.let_statement;
         const literal = ls.ident.literal;
 
+        try std.testing.expect(ls.token.kind == .LET);
+
         // Compare token literal
         std.testing.expect(std.mem.eql(u8, ident.value, literal)) catch {
             std.debug.print("Expected: {s}, got: {s}\n", .{ ident.value, literal });
             return TestError.CompareFailed;
         };
     }
+}
+
+test "return statements" {
+    const input =
+        \\return 5;
+        \\return 10;
+        \\return 993322;
+    ;
+
+    var lex = Lexer.Lexer.init(input);
+    var parser = Parser.init(std.testing.allocator, &lex);
+
+    var prog: Program = try parser.parseProgram();
+    defer prog.deinit();
+
+    try checkParseErrors(parser);
+
+    try std.testing.expect(prog.statements.items.len == 3);
+
+    for (prog.statements.items) |statement| {
+        var rs = statement.return_statement;
+        try std.testing.expect(rs.token.kind == .RETURN);
+    }
+}
+
+test "print ast" {
+    const input =
+        \\let x = 5;
+        \\let y = 10;
+        \\return 993322;
+    ;
+
+    var lex = Lexer.Lexer.init(input);
+    var parser = Parser.init(std.testing.allocator, &lex);
+
+    var prog: Program = try parser.parseProgram();
+    defer prog.deinit();
+
+    try checkParseErrors(parser);
+
+    try std.testing.expect(prog.statements.items.len == 3);
+
+    std.debug.print("Program AST:\n", .{});
+    std.debug.print("------------\n", .{});
+    try prog.print(std.io.getStdErr().writer());
+    std.debug.print("------------\n", .{});
+}
+
+test "identifier expresssion" {
+    const input = "foobar;";
+
+    var lex = Lexer.Lexer.init(input);
+    var parser = Parser.init(std.testing.allocator, &lex);
+
+    var prog: Program = try parser.parseProgram();
+    defer prog.deinit();
+
+    try checkParseErrors(parser);
+
+    try std.testing.expect(prog.statements.items.len == 1);
+
+    const stmt: Statement = prog.statements.items[0];
+    const expr: ExpressionStatement = stmt.expression_statement;
+    try std.testing.expect(expr.token.kind == .IDENT);
+    try std.testing.expect(std.mem.eql(u8, expr.token.literal, "foobar"));
+    //try std.testing.expect(std.mem.eql(u8, expr.value.literal, "foobar"));
 }
