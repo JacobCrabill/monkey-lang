@@ -4,6 +4,8 @@ const Tokens = @import("token.zig");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
+const WriteError = std.os.WriteError;
+
 /// Node:
 ///   decls:
 ///     fn tokenLiteral() []const u8
@@ -65,7 +67,7 @@ pub const Statement = union(StatementType) {
         };
     }
 
-    pub fn print(self: Self, stream: anytype) !void {
+    pub fn print(self: Self, stream: anytype) WriteError!void {
         switch (self) {
             inline else => |s| try s.print(stream),
         }
@@ -76,8 +78,16 @@ pub const Expression = union(enum) {
     const Self = @This();
     identifier: Identifier,
     integer_literal: IntegerLiteral,
+    prefix_expr: PrefixExpression,
 
-    pub fn print(self: Self, stream: anytype) !void {
+    pub fn deinit(self: *Self) void {
+        switch (self.*) {
+            .prefix_expr => |*pfx| pfx.deinit(),
+            else => {},
+        }
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
         switch (self) {
             inline else => |s| try s.print(stream),
         }
@@ -100,7 +110,7 @@ pub const Identifier = struct {
         return self.token.literal;
     }
 
-    pub fn print(self: Self, stream: anytype) !void {
+    pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s}", .{self.value});
     }
 };
@@ -119,8 +129,36 @@ pub const IntegerLiteral = struct {
         };
     }
 
-    pub fn print(self: Self, stream: anytype) !void {
+    pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{d}", .{self.value});
+    }
+};
+
+pub const PrefixExpression = struct {
+    const Self = @This();
+    alloc: Allocator,
+    token: Tokens.Token,
+    operator: []const u8,
+    right: ?*Expression,
+
+    pub fn createRight(self: *Self) !void {
+        self.right = try self.alloc.create(Expression);
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.right) |_| {
+            self.alloc.destroy(self.right.?);
+        }
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("{s}(", .{self.operator});
+        if (self.right) |right| {
+            try right.print(stream);
+        } else {
+            try stream.print("null", .{});
+        }
+        try stream.print(")", .{});
     }
 };
 
@@ -137,7 +175,7 @@ pub const ReturnStatement = struct {
     token: Tokens.Token,
     value: ?Expression,
 
-    pub fn print(self: Self, stream: anytype) !void {
+    pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s} ", .{self.token.literal});
         if (self.value) |value| {
             try value.print(stream);
@@ -150,9 +188,15 @@ pub const ExpressionStatement = struct {
     token: Tokens.Token,
     value: ?Expression,
 
-    pub fn print(self: Self, stream: anytype) !void {
+    pub fn deinit(self: *Self) void {
+        if (self.value) |*value| {
+            value.deinit();
+        }
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
         if (self.value) |value| {
-            try stream.print("{s}", .{value.identifier.value});
+            try value.print(stream);
         } else {
             try stream.print("null", .{});
         }
@@ -167,7 +211,7 @@ pub const LetStatement = struct {
     //ident: Identifier,
     //value: Expression,
 
-    pub fn print(self: Self, stream: anytype) !void {
+    pub fn print(self: Self, stream: anytype) WriteError!void {
         const let = self.token.literal;
         const name = self.ident.literal;
         // TODO: Check undefined
@@ -193,6 +237,12 @@ pub const Program = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        for (self.statements.items) |*stmt| {
+            switch (stmt.*) {
+                .expression_statement => |*es| es.deinit(),
+                else => {},
+            }
+        }
         self.statements.deinit();
     }
 
@@ -208,7 +258,7 @@ pub const Program = struct {
         }
     }
 
-    pub fn print(self: *Self, stream: anytype) !void {
+    pub fn print(self: *Self, stream: anytype) WriteError!void {
         for (self.statements.items) |s| {
             try s.print(stream);
             try stream.print(";\n", .{});

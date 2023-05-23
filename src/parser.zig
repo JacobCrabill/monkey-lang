@@ -167,6 +167,8 @@ const Parser = struct {
             .value = null,
         };
 
+        es.value = self.parseExpression(.LOWEST);
+
         if (self.nextTokenIs(.SEMI))
             self.nextToken();
 
@@ -175,18 +177,39 @@ const Parser = struct {
 
     fn parseExpression(self: *Self, _: Operators) ?ast.Expression {
         // Try parsing the operator in the prefix position, and return the result
-        if (self.parsePrefixExpression(self.cur_token.kind)) |expr| {
+        if (self.parsePrefix(self.cur_token.kind)) |expr| {
             return expr;
         }
         return null;
     }
 
-    fn parsePrefixExpression(self: *Self, kind: TokenType) ?ast.Expression {
+    fn parsePrefix(self: *Self, kind: TokenType) ?ast.Expression {
         return switch (kind) {
             .IDENT => self.parseIdentifier(),
             .INT => self.parseIntegerLiteral(),
-            else => null,
+            .BANG => self.parsePrefixExpression(),
+            .MINUS => self.parsePrefixExpression(),
+            else => null, // TODO: append error "no prefix parser for {s}"
         };
+    }
+
+    fn parsePrefixExpression(self: *Self) ast.Expression {
+        var expr = ast.PrefixExpression{
+            .alloc = self.alloc,
+            .token = self.cur_token,
+            .operator = self.cur_token.literal,
+            .right = null,
+        };
+
+        self.nextToken();
+
+        // Allocate, because pointer
+        if (self.parseExpression(.PREFIX)) |pfx_expr| {
+            expr.createRight() catch unreachable;
+            expr.right.?.* = pfx_expr;
+        }
+
+        return ast.Expression{ .prefix_expr = expr };
     }
 
     fn parseIdentifier(self: *Self) ast.Expression {
@@ -321,4 +344,51 @@ test "identifier expresssion" {
     try std.testing.expect(expr.token.kind == .IDENT);
     try std.testing.expect(std.mem.eql(u8, expr.token.literal, "foobar"));
     //try std.testing.expect(std.mem.eql(u8, expr.value.literal, "foobar"));
+}
+
+test "prefix expressions" {
+    const input =
+        \\!5;
+        \\-15;
+    ;
+
+    const Result = struct {
+        kind: TokenType,
+        operator: []const u8,
+        value: i64,
+    };
+    const expected = [_]Result{
+        .{
+            .kind = .BANG,
+            .operator = "!",
+            .value = 5,
+        },
+        .{
+            .kind = .MINUS,
+            .operator = "-",
+            .value = 15,
+        },
+    };
+
+    var lex = Lexer.Lexer.init(input);
+    var parser = Parser.init(std.testing.allocator, &lex);
+
+    var prog: Program = try parser.parseProgram();
+    defer prog.deinit();
+
+    try checkParseErrors(parser);
+    try prog.print(std.io.getStdErr().writer());
+
+    try std.testing.expect(prog.statements.items.len == 2);
+
+    for (prog.statements.items, expected) |stmt, res| {
+        const expr_s: ExpressionStatement = stmt.expression_statement;
+        const expr: ast.Expression = expr_s.value.?;
+        const pfx: ast.PrefixExpression = expr.prefix_expr;
+        try std.testing.expect(pfx.token.kind == res.kind);
+        try std.testing.expect(std.mem.eql(u8, pfx.operator, res.operator));
+
+        const integer_literal: ast.IntegerLiteral = pfx.right.?.integer_literal;
+        try std.testing.expect(integer_literal.value == res.value);
+    }
 }
