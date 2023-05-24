@@ -78,6 +78,7 @@ pub const Expression = union(enum) {
     const Self = @This();
     identifier: Identifier,
     integer_literal: IntegerLiteral,
+    boolean_literal: BooleanLiteral,
     prefix_expr: PrefixExpression,
     infix_expr: InfixExpression,
 
@@ -133,6 +134,16 @@ pub const IntegerLiteral = struct {
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{d}", .{self.value});
+    }
+};
+
+pub const BooleanLiteral = struct {
+    const Self = @This();
+    token: Tokens.Token,
+    value: bool,
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("{s}", .{self.token.literal});
     }
 };
 

@@ -22,7 +22,7 @@ const Operators = enum(u8) {
     LOWEST,
     EQUALS, // ==
     LESSGREATER, // > or <
-    SUM, // +
+    SUM, // + or -
     PRODUCT, // *
     PREFIX, // -X or !X
     CALL, // function()
@@ -245,6 +245,8 @@ const Parser = struct {
             .INT => self.parseIntegerLiteral(),
             .BANG => self.parsePrefixExpression(),
             .MINUS => self.parsePrefixExpression(),
+            .TRUE => self.parseBoolean(),
+            .FALSE => self.parseBoolean(),
             else => null, // TODO: append error "no prefix parser for {s}"
         };
     }
@@ -302,6 +304,15 @@ const Parser = struct {
         // 'Could not parse {s} as integer"
         const lit = ast.IntegerLiteral.init(self.cur_token);
         return ast.Expression{ .integer_literal = lit };
+    }
+
+    fn parseBoolean(self: *Self) ast.Expression {
+        return ast.Expression{
+            .boolean_literal = ast.BooleanLiteral{
+                .token = self.cur_token,
+                .value = self.curTokenIs(.TRUE),
+            },
+        };
     }
 };
 
@@ -536,29 +547,14 @@ test "infix expressions" {
     }
 }
 
-test "operator precedence" {
-    const TestData = struct {
-        input: []const u8 = undefined,
-        output: []const u8 = undefined,
-    };
+const TestData = struct {
+    input: []const u8 = undefined,
+    output: []const u8 = undefined,
+};
 
-    const test_data = [_]TestData{
-        .{ .input = "-a * b", .output = "((-a) * b);\n" },
-        .{ .input = "!-a", .output = "(!(-a));\n" },
-        .{ .input = "!-a", .output = "(!(-a));\n" },
-        .{ .input = "a + b + c", .output = "((a + b) + c);\n" },
-        .{ .input = "a + b - c", .output = "((a + b) - c);\n" },
-        .{ .input = "a * b * c", .output = "((a * b) * c);\n" },
-        .{ .input = "a * b / c", .output = "((a * b) / c);\n" },
-        .{ .input = "a + b / c", .output = "(a + (b / c));\n" },
-        .{ .input = "a + b * c + d / e - f", .output = "(((a + (b * c)) + (d } e)) - f);\n" },
-        .{ .input = "3 + 4 * -5 * 5", .output = "(3 + ((4 * (-5)) * 5));\n" },
-        .{ .input = "5 > 4 == 3 < 4", .output = "((5 > 4) == (3 < 4));\n" },
-        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .output = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)));\n" },
-    };
-
+fn testProgram(test_data: []const TestData, comptime buf_size: usize) !void {
     for (test_data) |data| {
-        var buf: [255]u8 = undefined;
+        var buf: [buf_size]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf);
         const stream = fbs.writer();
         const input = data.input;
@@ -578,4 +574,34 @@ test "operator precedence" {
 
         try std.testing.expectEqualSlices(u8, output, fbs.getWritten());
     }
+}
+
+test "operator precedence" {
+    const test_data = [_]TestData{
+        .{ .input = "-a * b", .output = "((-a) * b);\n" },
+        .{ .input = "!-a", .output = "(!(-a));\n" },
+        .{ .input = "!-a", .output = "(!(-a));\n" },
+        .{ .input = "a + b + c", .output = "((a + b) + c);\n" },
+        .{ .input = "a + b - c", .output = "((a + b) - c);\n" },
+        .{ .input = "a * b * c", .output = "((a * b) * c);\n" },
+        .{ .input = "a * b / c", .output = "((a * b) / c);\n" },
+        .{ .input = "a + b / c", .output = "(a + (b / c));\n" },
+        .{ .input = "a + b * c + d / e - f", .output = "(((a + (b * c)) + (d / e)) - f);\n" },
+        .{ .input = "3 + 4 * -5 * 5", .output = "(3 + ((4 * (-5)) * 5));\n" },
+        .{ .input = "5 > 4 == 3 < 4", .output = "((5 > 4) == (3 < 4));\n" },
+        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .output = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)));\n" },
+    };
+
+    try testProgram(&test_data, 256);
+}
+
+test "boolean literals" {
+    const test_data = [_]TestData{
+        .{ .input = "true;", .output = "true;\n" },
+        .{ .input = "false;", .output = "false;\n" },
+        .{ .input = "let foobar = true;", .output = "let foobar = true;\n" },
+        .{ .input = "let barfoo = false;", .output = "let barfoo = false;\n" },
+    };
+
+    try testProgram(&test_data, 256);
 }
