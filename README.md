@@ -1,7 +1,7 @@
 # Monkey Interpreter in Zig
 
 An implementation of the Monkey programming language in Zig
-Following Thorston Ball's ["Writing An Interpreter in Go"](interpreterbook.com)
+Following Thorsten Ball's ["Writing An Interpreter in Go"](interpreterbook.com)
 
 ## Status
 

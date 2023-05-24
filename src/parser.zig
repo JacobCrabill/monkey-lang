@@ -222,6 +222,21 @@ pub const Parser = struct {
         return Statement{ .expression_statement = es };
     }
 
+    fn parseBlockStatement(self: *Self) ?ast.BlockStatement {
+        var block = ast.BlockStatement.init(self.alloc);
+
+        while (!self.nextTokenIs(.RBRACE)) {
+            if (self.parseStatement()) |stmt| {
+                block.statements.append(stmt) catch unreachable;
+            }
+            self.nextToken();
+        }
+
+        return block;
+    }
+
+    // -------- Expressions --------
+
     fn parseExpression(self: *Self, precedence: Operators) ?ast.Expression {
         const iprec: u8 = @enumToInt(precedence);
 
@@ -243,8 +258,6 @@ pub const Parser = struct {
         return left;
     }
 
-    // -------- Expressions --------
-
     fn parsePrefix(self: *Self, kind: TokenType) ?ast.Expression {
         return switch (kind) {
             .IDENT => self.parseIdentifier(),
@@ -254,6 +267,7 @@ pub const Parser = struct {
             .TRUE => self.parseBoolean(),
             .FALSE => self.parseBoolean(),
             .LPAREN => self.parseGroupedExpression(),
+            .IF => self.parseIfExpression(),
             else => null, // TODO: append error "no prefix parser for {s}"
         };
     }
@@ -301,17 +315,51 @@ pub const Parser = struct {
         return ast.Expression{ .infix_expr = expr };
     }
 
-    fn parseGroupedExpression(self: *Self) ast.Expression {
+    fn parseGroupedExpression(self: *Self) ?ast.Expression {
         self.nextToken();
 
         // TODO: Error handling!
         var exp = self.parseExpression(.LOWEST).?;
 
         if (!self.expectPeek(.RPAREN)) {
-            @panic("Invalid grouped expression!");
+            return null;
         }
 
         return exp;
+    }
+
+    fn parseIfExpression(self: *Self) ?ast.Expression {
+        var ifexp = ast.IfExpression{
+            .alloc = self.alloc,
+            .token = self.cur_token,
+            .condition = null,
+            .consequence = null,
+            .alternative = null,
+        };
+
+        if (!self.expectPeek(.LPAREN)) {
+            return null;
+        }
+
+        self.nextToken();
+        if (self.parseExpression(.LOWEST)) |exp| {
+            ifexp.condition = self.alloc.create(ast.Expression) catch unreachable;
+            ifexp.condition.?.* = exp;
+        }
+
+        if (!self.expectPeek(.RPAREN))
+            return null;
+
+        if (!self.expectPeek(.LBRACE))
+            return null;
+
+        if (self.parseBlockStatement()) |block| {
+            // TODO: Cleanup memory management strategy!!!!!!
+            ifexp.consequence = self.alloc.create(ast.BlockStatement) catch unreachable;
+            ifexp.consequence.?.* = block;
+        }
+
+        return ast.Expression{ .if_expr = ifexp };
     }
 
     // -------- Identifiers and Literals --------
@@ -624,6 +672,14 @@ test "boolean literals" {
         .{ .input = "false;", .output = "false;\n" },
         .{ .input = "let foobar = true;", .output = "let foobar = true;\n" },
         .{ .input = "let barfoo = false;", .output = "let barfoo = false;\n" },
+    };
+
+    try testProgram(&test_data, 256);
+}
+
+test "if expressions" {
+    const test_data = [_]TestData{
+        .{ .input = "if (x < y) {x} else {y};", .output = "if (x < y) {x} else {y};\n" },
     };
 
     try testProgram(&test_data, 256);

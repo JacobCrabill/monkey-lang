@@ -2,6 +2,8 @@ const std = @import("std");
 const Tokens = @import("../tokens.zig");
 const Expressions = @import("expressions.zig");
 
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const WriteError = std.os.WriteError;
 const TokenType = Tokens.TokenType;
 const Token = Tokens.Token;
@@ -11,6 +13,7 @@ pub const StatementType = enum {
     let_statement,
     return_statement,
     expression_statement,
+    block_statement,
 };
 
 pub const Statement = union(StatementType) {
@@ -18,6 +21,7 @@ pub const Statement = union(StatementType) {
     let_statement: LetStatement,
     return_statement: ReturnStatement,
     expression_statement: ExpressionStatement,
+    block_statement: BlockStatement,
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         switch (self) {
@@ -84,5 +88,33 @@ pub const LetStatement = struct {
         if (self.value) |value| {
             try value.print(stream);
         }
+    }
+};
+
+pub const BlockStatement = struct {
+    const Self = @This();
+    alloc: Allocator,
+    statements: ArrayList(Statement),
+
+    pub fn init(alloc: Allocator) Self {
+        return .{
+            .alloc = alloc,
+            .statements = ArrayList(Statement).init(alloc),
+        };
+    }
+
+    pub fn deinit(self: *Self) Self {
+        for (self.statements.items) |s| {
+            s.deinit();
+        }
+        self.statements.deinit();
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("{{", .{});
+        for (self.statements.items) |s| {
+            try s.print(stream);
+        }
+        try stream.print("}}", .{});
     }
 };

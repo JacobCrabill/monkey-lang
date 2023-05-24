@@ -1,10 +1,13 @@
 const std = @import("std");
 const Tokens = @import("../tokens.zig");
+const Statements = @import("statements.zig");
 
 const Allocator = std.mem.Allocator;
 const WriteError = std.os.WriteError;
 const TokenType = Tokens.TokenType;
 const Token = Tokens.Token;
+const Statement = Statements.Statement;
+const BlockStatement = Statements.BlockStatement;
 
 pub const Expression = union(enum) {
     const Self = @This();
@@ -13,6 +16,7 @@ pub const Expression = union(enum) {
     boolean_literal: BooleanLiteral,
     prefix_expr: PrefixExpression,
     infix_expr: InfixExpression,
+    if_expr: IfExpression,
 
     pub fn deinit(self: *Self) void {
         switch (self.*) {
@@ -164,5 +168,29 @@ pub const InfixExpression = struct {
             try stream.print("null", .{});
         }
         try stream.print(")", .{});
+    }
+};
+
+pub const IfExpression = struct {
+    const Self = @This();
+    token: Token,
+    alloc: Allocator,
+    condition: ?*Expression,
+    consequence: ?*BlockStatement,
+    alternative: ?*BlockStatement,
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("if ", .{});
+        if (self.condition) |cond| {
+            try cond.print(stream);
+        }
+        if (self.consequence) |cons| {
+            try cons.print(stream);
+        }
+        try stream.print(" ", .{});
+        if (self.alternative) |alt| {
+            try stream.print("else ", .{});
+            try alt.print(stream);
+        }
     }
 };
