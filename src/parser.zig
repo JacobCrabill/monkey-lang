@@ -3,6 +3,7 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Map = std.AutoArrayHashMap;
+const WriteError = std.os.WriteError;
 
 const ast = @import("ast.zig");
 const Lexer = @import("lexer.zig");
@@ -532,5 +533,49 @@ test "infix expressions" {
 
         try std.testing.expect(lval == res.lval);
         try std.testing.expect(rval == res.rval);
+    }
+}
+
+test "operator precedence" {
+    const TestData = struct {
+        input: []const u8 = undefined,
+        output: []const u8 = undefined,
+    };
+
+    const test_data = [_]TestData{
+        .{ .input = "-a * b", .output = "((-a) * b);\n" },
+        .{ .input = "!-a", .output = "(!(-a));\n" },
+        .{ .input = "!-a", .output = "(!(-a));\n" },
+        .{ .input = "a + b + c", .output = "((a + b) + c);\n" },
+        .{ .input = "a + b - c", .output = "((a + b) - c);\n" },
+        .{ .input = "a * b * c", .output = "((a * b) * c);\n" },
+        .{ .input = "a * b / c", .output = "((a * b) / c);\n" },
+        .{ .input = "a + b / c", .output = "(a + (b / c));\n" },
+        .{ .input = "a + b * c + d / e - f", .output = "(((a + (b * c)) + (d } e)) - f);\n" },
+        .{ .input = "3 + 4 * -5 * 5", .output = "(3 + ((4 * (-5)) * 5));\n" },
+        .{ .input = "5 > 4 == 3 < 4", .output = "((5 > 4) == (3 < 4));\n" },
+        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .output = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)));\n" },
+    };
+
+    for (test_data) |data| {
+        var buf: [255]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        const stream = fbs.writer();
+        const input = data.input;
+        const output = data.output;
+
+        // Process the input
+        var lex = Lexer.Lexer.init(input);
+        var parser = Parser.init(std.testing.allocator, &lex);
+        defer parser.deinit();
+
+        var prog: Program = try parser.parseProgram();
+        defer prog.deinit();
+
+        // Check the output
+        try checkParseErrors(parser);
+        try prog.print(stream);
+
+        try std.testing.expectEqualSlices(u8, output, fbs.getWritten());
     }
 }

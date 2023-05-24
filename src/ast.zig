@@ -155,7 +155,7 @@ pub const PrefixExpression = struct {
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
-        try stream.print("{s}(", .{self.operator});
+        try stream.print("({s}", .{self.operator});
         if (self.right) |right| {
             try right.print(stream);
         } else {
@@ -210,13 +210,11 @@ pub const InfixExpression = struct {
         } else {
             try stream.print("null", .{});
         }
-        try stream.print(")", .{});
 
         // Operator
         try stream.print(" {s} ", .{self.operator});
 
         // Right
-        try stream.print("(", .{});
         if (self.right) |right| {
             try right.print(stream);
         } else {
