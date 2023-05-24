@@ -239,6 +239,8 @@ const Parser = struct {
         return left;
     }
 
+    // -------- Expressions --------
+
     fn parsePrefix(self: *Self, kind: TokenType) ?ast.Expression {
         return switch (kind) {
             .IDENT => self.parseIdentifier(),
@@ -247,6 +249,7 @@ const Parser = struct {
             .MINUS => self.parsePrefixExpression(),
             .TRUE => self.parseBoolean(),
             .FALSE => self.parseBoolean(),
+            .LPAREN => self.parseGroupedExpression(),
             else => null, // TODO: append error "no prefix parser for {s}"
         };
     }
@@ -293,6 +296,21 @@ const Parser = struct {
 
         return ast.Expression{ .infix_expr = expr };
     }
+
+    fn parseGroupedExpression(self: *Self) ast.Expression {
+        self.nextToken();
+
+        // TODO: Error handling!
+        var exp = self.parseExpression(.LOWEST).?;
+
+        if (!self.expectPeek(.RPAREN)) {
+            @panic("Invalid grouped expression!");
+        }
+
+        return exp;
+    }
+
+    // -------- Identifiers and Literals --------
 
     fn parseIdentifier(self: *Self) ast.Expression {
         const ident = ast.Identifier.init(self.cur_token.kind, self.cur_token.literal);
@@ -590,6 +608,7 @@ test "operator precedence" {
         .{ .input = "3 + 4 * -5 * 5", .output = "(3 + ((4 * (-5)) * 5));\n" },
         .{ .input = "5 > 4 == 3 < 4", .output = "((5 > 4) == (3 < 4));\n" },
         .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .output = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)));\n" },
+        .{ .input = "(3 + 4) * 5 == 3 * 1 + 4 * 5", .output = "(((3 + 4) * 5) == ((3 * 1) + (4 * 5)));\n" },
     };
 
     try testProgram(&test_data, 256);
