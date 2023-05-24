@@ -2,6 +2,7 @@ const std = @import("std");
 
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+const Map = std.AutoArrayHashMap;
 
 const ast = @import("ast.zig");
 const Lexer = @import("lexer.zig");
@@ -26,6 +27,34 @@ const Operators = enum(u8) {
     CALL, // function()
 };
 
+pub fn precedenceMap(token_type: TokenType) Operators {
+    return switch (token_type) {
+        .EQ => .EQUALS,
+        .NEQ => .EQUALS,
+        .LT => .LESSGREATER,
+        .GT => .LESSGREATER,
+        .PLUS => .SUM,
+        .MINUS => .SUM,
+        .SLASH => .PRODUCT,
+        .STAR => .PRODUCT,
+        else => .LOWEST,
+    };
+}
+
+pub fn isOperator(token_type: TokenType) bool {
+    return switch (token_type) {
+        .PLUS => true,
+        .MINUS => true,
+        .SLASH => true,
+        .STAR => true,
+        .EQ => true,
+        .NEQ => true,
+        .LT => true,
+        .GT => true,
+        else => false,
+    };
+}
+
 const Parser = struct {
     const Self = @This();
     alloc: Allocator,
@@ -33,6 +62,7 @@ const Parser = struct {
     cur_token: Token = undefined,
     next_token: Token = undefined,
     errors: ArrayList([]const u8),
+    expressions: ArrayList(ast.Expression),
 
     // Create and initialize a new Parser
     pub fn init(alloc: Allocator, lexer: *Lexer.Lexer) Self {
@@ -40,6 +70,7 @@ const Parser = struct {
             .alloc = alloc,
             .lexer = lexer,
             .errors = ArrayList([]const u8).init(alloc),
+            .expressions = ArrayList(ast.Expression).init(alloc),
         };
         parser.nextToken();
         parser.nextToken();
@@ -49,6 +80,7 @@ const Parser = struct {
     /// Release all resources
     pub fn deinit(self: *Self) void {
         self.errors.deinit();
+        self.expressions.deinit();
     }
 
     /// Check if the current token is the given type
@@ -59,6 +91,16 @@ const Parser = struct {
     /// Check if the next token is of type 'kind'
     pub fn nextTokenIs(self: Self, kind: TokenType) bool {
         return self.next_token.kind == kind;
+    }
+
+    /// Check the operator precedence of the next token
+    pub fn peekPrecedence(self: Self) Operators {
+        return precedenceMap(self.next_token.kind);
+    }
+
+    /// Check the operator precedence of the current token
+    pub fn curPrecedence(self: Self) Operators {
+        return precedenceMap(self.cur_token.kind);
     }
 
     /// Expect that the next token is of type 'kind'; advance token if so
@@ -175,12 +217,25 @@ const Parser = struct {
         return Statement{ .expression_statement = es };
     }
 
-    fn parseExpression(self: *Self, _: Operators) ?ast.Expression {
+    fn parseExpression(self: *Self, precedence: Operators) ?ast.Expression {
+        const iprec: u8 = @enumToInt(precedence);
+
         // Try parsing the operator in the prefix position, and return the result
-        if (self.parsePrefix(self.cur_token.kind)) |expr| {
-            return expr;
+        var left: ast.Expression = self.parsePrefix(self.cur_token.kind) orelse return null;
+
+        while (!(self.curTokenIs(.SEMI) or self.curTokenIs(.EOF)) and iprec < @enumToInt(self.peekPrecedence())) {
+            if (isOperator(self.next_token.kind)) {
+                self.nextToken();
+                // Copy 'left' onto the heap; make the next InfixExpression the new 'left'
+                var pleft: *ast.Expression = self.expressions.addOne() catch unreachable;
+                pleft.* = left;
+                left = self.parseInfixExpression(pleft);
+            } else {
+                break;
+            }
         }
-        return null;
+
+        return left;
     }
 
     fn parsePrefix(self: *Self, kind: TokenType) ?ast.Expression {
@@ -203,13 +258,37 @@ const Parser = struct {
 
         self.nextToken();
 
-        // Allocate, because pointer
         if (self.parseExpression(.PREFIX)) |pfx_expr| {
+            // Allocate, because pointer
             expr.createRight() catch unreachable;
             expr.right.?.* = pfx_expr;
         }
 
         return ast.Expression{ .prefix_expr = expr };
+    }
+
+    fn parseInfixExpression(self: *Self, left: *ast.Expression) ast.Expression {
+        var expr = ast.InfixExpression{
+            .alloc = self.alloc,
+            .token = self.cur_token,
+            .operator = self.cur_token.literal,
+            .left = left,
+            .right = null,
+        };
+
+        const precedence = self.curPrecedence();
+        self.nextToken();
+
+        if (self.parseExpression(precedence)) |ifx_expr| {
+            // Allocate, because pointer
+            expr.createRight() catch unreachable;
+            expr.right.?.* = ifx_expr;
+        } else {
+            // TODO: make parser error
+            std.debug.print("Could not parse right expression for {any}\n", .{left.*});
+        }
+
+        return ast.Expression{ .infix_expr = expr };
     }
 
     fn parseIdentifier(self: *Self) ast.Expression {
@@ -224,6 +303,8 @@ const Parser = struct {
         return ast.Expression{ .integer_literal = lit };
     }
 };
+
+// --------------------------------- Tests ---------------------------------
 
 const TestError = error{
     CompareFailed,
@@ -434,6 +515,7 @@ test "infix expressions" {
 
     var lex = Lexer.Lexer.init(input);
     var parser = Parser.init(std.testing.allocator, &lex);
+    defer parser.deinit();
 
     var prog: Program = try parser.parseProgram();
     defer prog.deinit();

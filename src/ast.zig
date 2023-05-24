@@ -84,6 +84,7 @@ pub const Expression = union(enum) {
     pub fn deinit(self: *Self) void {
         switch (self.*) {
             .prefix_expr => |*pfx| pfx.deinit(),
+            .infix_expr => |*ifx| ifx.deinit(),
             else => {},
         }
     }
@@ -147,8 +148,9 @@ pub const PrefixExpression = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        if (self.right) |_| {
-            self.alloc.destroy(self.right.?);
+        if (self.right) |*right| {
+            right.*.deinit();
+            self.alloc.destroy(right.*);
         }
     }
 
@@ -170,26 +172,51 @@ pub const InfixExpression = struct {
     left: ?*Expression,
     operator: []const u8,
     right: ?*Expression,
+    lalloc: bool = false,
+    ralloc: bool = false,
 
     pub fn createLeft(self: *Self) !void {
         self.left = try self.alloc.create(Expression);
+        self.lalloc = true;
     }
 
     pub fn createRight(self: *Self) !void {
         self.right = try self.alloc.create(Expression);
+        self.ralloc = true;
     }
 
     pub fn deinit(self: *Self) void {
-        if (self.left) |_| {
-            self.alloc.destroy(self.left.?);
+        if (self.left) |*left| {
+            left.*.deinit();
+            if (self.lalloc) {
+                self.alloc.destroy(left.*);
+                self.lalloc = false;
+            }
         }
-        if (self.right) |_| {
-            self.alloc.destroy(self.right.?);
+        if (self.right) |*right| {
+            right.*.deinit();
+            if (self.ralloc) {
+                self.alloc.destroy(right.*);
+                self.ralloc = false;
+            }
         }
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
-        try stream.print("{s}(", .{self.operator});
+        // Left
+        try stream.print("(", .{});
+        if (self.left) |left| {
+            try left.print(stream);
+        } else {
+            try stream.print("null", .{});
+        }
+        try stream.print(")", .{});
+
+        // Operator
+        try stream.print(" {s} ", .{self.operator});
+
+        // Right
+        try stream.print("(", .{});
         if (self.right) |right| {
             try right.print(stream);
         } else {
