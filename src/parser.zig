@@ -5,9 +5,13 @@ const Allocator = std.mem.Allocator;
 const Map = std.AutoArrayHashMap;
 const WriteError = std.os.WriteError;
 
-const ast = @import("ast.zig");
-const Lexer = @import("lexer.zig");
-const Tokens = @import("token.zig");
+const ast = struct {
+    usingnamespace @import("ast.zig");
+    usingnamespace @import("ast/expressions.zig");
+    usingnamespace @import("ast/statements.zig");
+};
+const Lexer = @import("lexer.zig").Lexer;
+const Tokens = @import("tokens.zig");
 
 const Program = ast.Program;
 const Statement = ast.Statement;
@@ -59,14 +63,14 @@ pub fn isOperator(token_type: TokenType) bool {
 const Parser = struct {
     const Self = @This();
     alloc: Allocator,
-    lexer: *Lexer.Lexer,
+    lexer: *Lexer,
     cur_token: Token = undefined,
     next_token: Token = undefined,
     errors: ArrayList([]const u8),
     expressions: ArrayList(ast.Expression),
 
     // Create and initialize a new Parser
-    pub fn init(alloc: Allocator, lexer: *Lexer.Lexer) Self {
+    pub fn init(alloc: Allocator, lexer: *Lexer) Self {
         var parser = Parser{
             .alloc = alloc,
             .lexer = lexer,
@@ -360,7 +364,7 @@ test "let statements" {
         \\let foobar = 838383;
     ;
 
-    var lex = Lexer.Lexer.init(input);
+    var lex = Lexer.init(input);
     var parser = Parser.init(std.testing.allocator, &lex);
 
     var prog: Program = try parser.parseProgram();
@@ -398,7 +402,7 @@ test "return statements" {
         \\return 993322;
     ;
 
-    var lex = Lexer.Lexer.init(input);
+    var lex = Lexer.init(input);
     var parser = Parser.init(std.testing.allocator, &lex);
 
     var prog: Program = try parser.parseProgram();
@@ -421,7 +425,7 @@ test "print ast" {
         \\return 993322;
     ;
 
-    var lex = Lexer.Lexer.init(input);
+    var lex = Lexer.init(input);
     var parser = Parser.init(std.testing.allocator, &lex);
 
     var prog: Program = try parser.parseProgram();
@@ -440,7 +444,7 @@ test "print ast" {
 test "identifier expresssion" {
     const input = "foobar;";
 
-    var lex = Lexer.Lexer.init(input);
+    var lex = Lexer.init(input);
     var parser = Parser.init(std.testing.allocator, &lex);
 
     var prog: Program = try parser.parseProgram();
@@ -481,7 +485,7 @@ test "prefix expressions" {
         },
     };
 
-    var lex = Lexer.Lexer.init(input);
+    var lex = Lexer.init(input);
     var parser = Parser.init(std.testing.allocator, &lex);
 
     var prog: Program = try parser.parseProgram();
@@ -543,7 +547,7 @@ test "infix expressions" {
 
     // TODO: Construct expected AST, write AST comparison fn
 
-    var lex = Lexer.Lexer.init(input);
+    var lex = Lexer.init(input);
     var parser = Parser.init(std.testing.allocator, &lex);
     defer parser.deinit();
 
@@ -579,7 +583,7 @@ fn testProgram(test_data: []const TestData, comptime buf_size: usize) !void {
         const output = data.output;
 
         // Process the input
-        var lex = Lexer.Lexer.init(input);
+        var lex = Lexer.init(input);
         var parser = Parser.init(std.testing.allocator, &lex);
         defer parser.deinit();
 

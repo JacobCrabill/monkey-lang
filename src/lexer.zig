@@ -1,5 +1,5 @@
 const std = @import("std");
-const Tokens = @import("token.zig");
+const Tokens = @import("tokens.zig");
 
 const TokenType = Tokens.TokenType;
 const Token = Tokens.Token;
