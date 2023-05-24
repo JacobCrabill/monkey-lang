@@ -60,7 +60,7 @@ pub fn isOperator(token_type: TokenType) bool {
     };
 }
 
-const Parser = struct {
+pub const Parser = struct {
     const Self = @This();
     alloc: Allocator,
     lexer: *Lexer,

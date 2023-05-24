@@ -48,4 +48,10 @@ pub const Program = struct {
             try stream.print(";\n", .{});
         }
     }
+
+    pub fn printStatements(self: *Self, stream: anytype) WriteError!void {
+        for (self.statements.items) |s| {
+            try stream.print("{any}\n", .{s});
+        }
+    }
 };
