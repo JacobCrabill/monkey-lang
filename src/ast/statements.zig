@@ -125,9 +125,10 @@ pub const BlockStatement = struct {
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
-        try stream.print("{{", .{});
+        try stream.print("{{\n", .{});
         for (self.statements.items) |s| {
             try s.print(stream);
+            try stream.print(";\n", .{});
         }
         try stream.print("}}", .{});
     }

@@ -51,7 +51,7 @@ pub const Program = struct {
 
     pub fn printStatements(self: *Self, stream: anytype) WriteError!void {
         for (self.statements.items) |s| {
-            try stream.print("{any}\n", .{s});
+            try stream.print("{any};\n", .{s});
         }
     }
 };

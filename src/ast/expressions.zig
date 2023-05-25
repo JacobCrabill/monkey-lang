@@ -3,6 +3,7 @@ const Tokens = @import("../tokens.zig");
 const Statements = @import("statements.zig");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const WriteError = std.os.WriteError;
 const TokenType = Tokens.TokenType;
 const Token = Tokens.Token;
@@ -17,12 +18,14 @@ pub const Expression = union(enum) {
     prefix_expr: PrefixExpression,
     infix_expr: InfixExpression,
     if_expr: IfExpression,
+    fn_expr: FnExpression,
 
     pub fn deinit(self: *Self) void {
         switch (self.*) {
             .prefix_expr => |*pfx| pfx.deinit(),
             .infix_expr => |*ifx| ifx.deinit(),
             .if_expr => |*ifx| ifx.deinit(),
+            .fn_expr => |*fnx| fnx.deinit(),
             else => {},
         }
     }
@@ -39,10 +42,10 @@ pub const Identifier = struct {
     token: Token,
     value: []const u8,
 
-    pub fn init(kind: TokenType, value: []const u8) Self {
+    pub fn init(token: Token) Self {
         return .{
-            .token = Token.init(kind, value),
-            .value = value,
+            .token = token,
+            .value = token.literal,
         };
     }
 
@@ -96,9 +99,9 @@ pub const PrefixExpression = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        if (self.right) |*right| {
-            right.*.deinit();
-            self.alloc.destroy(right.*);
+        if (self.right) |*pright| {
+            pright.*.deinit();
+            self.alloc.destroy(pright.*);
         }
     }
 
@@ -123,7 +126,6 @@ pub const InfixExpression = struct {
 
     pub fn createLeft(self: *Self) !void {
         self.left = try self.alloc.create(Expression);
-        self.lalloc = true;
     }
 
     pub fn createRight(self: *Self) !void {
@@ -197,10 +199,39 @@ pub const IfExpression = struct {
             try cons.print(stream);
         }
 
-        try stream.print(" ", .{});
         if (self.alternative) |alt| {
-            try stream.print("else ", .{});
+            try stream.print(" else ", .{});
             try alt.print(stream);
+        }
+    }
+};
+
+pub const FnExpression = struct {
+    const Self = @This();
+    token: Token,
+    alloc: Allocator,
+    parameters: ArrayList(Identifier),
+    block: ?*BlockStatement,
+
+    pub fn deinit(self: *Self) void {
+        self.parameters.deinit();
+        if (self.block) |*pblk| {
+            pblk.*.deinit();
+            self.alloc.destroy(pblk.*);
+        }
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("fn(", .{});
+        for (self.parameters.items, 0..) |param, i| {
+            try stream.print("{s}", .{param.value});
+            if (i < self.parameters.items.len - 1)
+                try stream.print(", ", .{});
+        }
+        try stream.print(") ", .{});
+
+        if (self.block) |blk| {
+            try blk.print(stream);
         }
     }
 };

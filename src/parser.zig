@@ -128,7 +128,16 @@ pub const Parser = struct {
 
     pub fn peekError(self: *Self, kind: TokenType) void {
         const fmt = "Expected next token to be {any}, got {any} instead";
-        const msg = std.fmt.allocPrint(self.alloc, fmt, .{ kind, self.cur_token.kind }) catch {
+        const msg = std.fmt.allocPrint(self.alloc, fmt, .{ kind, self.next_token.kind }) catch {
+            @panic("ERROR: Cannot alloc for string format!");
+        };
+        self.errors.append(msg) catch {
+            @panic("ERROR: Cannot alloc for new parser error!");
+        };
+    }
+
+    fn makeError(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        const msg = std.fmt.allocPrint(self.alloc, fmt, args) catch {
             @panic("ERROR: Cannot alloc for string format!");
         };
         self.errors.append(msg) catch {
@@ -267,7 +276,11 @@ pub const Parser = struct {
             .FALSE => self.parseBoolean(),
             .LPAREN => self.parseGroupedExpression(),
             .IF => self.parseIfExpression(),
-            else => null, // TODO: append error "no prefix parser for {s}"
+            .FUNCTION => self.parseFnExpression(),
+            else => {
+                self.makeError("No prefix parser for type {any}", .{kind});
+                return null;
+            },
         };
     }
 
@@ -345,14 +358,19 @@ pub const Parser = struct {
             ifexp.condition = self.alloc.create(ast.Expression) catch unreachable;
             ifexp.condition.?.* = exp;
         } else {
+            ifexp.deinit();
             return null;
         }
 
-        if (!self.expectPeek(.RPAREN))
+        if (!self.expectPeek(.RPAREN)) {
+            ifexp.deinit();
             return null;
+        }
 
-        if (!self.expectPeek(.LBRACE))
+        if (!self.expectPeek(.LBRACE)) {
+            ifexp.deinit();
             return null;
+        }
 
         if (self.parseBlockStatement()) |block| {
             ifexp.consequence = self.alloc.create(ast.BlockStatement) catch unreachable;
@@ -379,10 +397,52 @@ pub const Parser = struct {
         return ast.Expression{ .if_expr = ifexp };
     }
 
+    fn parseFnExpression(self: *Self) ?ast.Expression {
+        var fnexp = ast.FnExpression{
+            .alloc = self.alloc,
+            .token = self.cur_token,
+            .parameters = ArrayList(ast.Identifier).init(self.alloc),
+            .block = null,
+        };
+
+        if (!self.expectPeek(.LPAREN)) {
+            return null;
+        }
+
+        self.nextToken();
+        while (self.nextTokenIs(.COMMA)) {
+            fnexp.parameters.append(ast.Identifier.init(self.cur_token)) catch unreachable;
+            self.nextToken();
+            self.nextToken();
+        }
+
+        const cur_token = self.cur_token;
+        if (!self.expectPeek(.RPAREN)) {
+            fnexp.deinit();
+            return null;
+        }
+        fnexp.parameters.append(ast.Identifier.init(cur_token)) catch unreachable;
+
+        if (!self.expectPeek(.LBRACE)) {
+            fnexp.deinit();
+            return null;
+        }
+
+        if (self.parseBlockStatement()) |block| {
+            fnexp.block = self.alloc.create(ast.BlockStatement) catch unreachable;
+            fnexp.block.?.* = block;
+        } else {
+            fnexp.deinit();
+            return null;
+        }
+
+        return ast.Expression{ .fn_expr = fnexp };
+    }
+
     // -------- Identifiers and Literals --------
 
     fn parseIdentifier(self: *Self) ast.Expression {
-        const ident = ast.Identifier.init(self.cur_token.kind, self.cur_token.literal);
+        const ident = ast.Identifier.init(self.cur_token);
         return ast.Expression{ .identifier = ident };
     }
 
@@ -440,9 +500,9 @@ test "let statements" {
     try std.testing.expect(prog.statements.items.len == 3);
 
     const expected_idents = [_]ast.Identifier{
-        ast.Identifier.init(.IDENT, "x"),
-        ast.Identifier.init(.IDENT, "y"),
-        ast.Identifier.init(.IDENT, "foobar"),
+        ast.Identifier.init(Token.init(.IDENT, "x")),
+        ast.Identifier.init(Token.init(.IDENT, "y")),
+        ast.Identifier.init(Token.init(.IDENT, "foobar")),
     };
 
     for (expected_idents, 0..) |ident, i| {
@@ -697,12 +757,27 @@ test "boolean literals" {
 test "if expressions" {
     const test_data = [_]TestData{
         .{
+            .input = "if (foo) { -1 * 5 };",
+            .output = "if foo {\n((-1) * 5);\n};\n", // TODO
+        },
+        .{
             .input = "if (x < y) { x } else { y };",
-            .output = "if (x < y) {x} else {y};\n",
+            .output = "if (x < y) {\nx;\n} else {\ny;\n};\n",
         },
         .{
             .input = "if (5 - 3 < 4) { return true; } else { return false };",
-            .output = "if ((5 - 3) < 4) {return true} else {return false};\n",
+            .output = "if ((5 - 3) < 4) {\nreturn true;\n} else {\nreturn false;\n};\n",
+        },
+    };
+
+    try testProgram(&test_data, 2048);
+}
+
+test "fn expressions" {
+    const test_data = [_]TestData{
+        .{
+            .input = "fn (x, y) {let a = 5 + 3; return a; };",
+            .output = "fn(x, y) {\nlet a = (5 + 3);\nreturn a;\n};\n",
         },
     };
 
