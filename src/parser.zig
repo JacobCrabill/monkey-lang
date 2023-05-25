@@ -220,9 +220,11 @@ pub const Parser = struct {
     }
 
     fn parseBlockStatement(self: *Self) ?ast.BlockStatement {
-        var block = ast.BlockStatement.init(self.alloc);
+        var block = ast.BlockStatement.init(self.alloc, self.cur_token);
 
-        while (!self.nextTokenIs(.RBRACE)) {
+        self.nextToken();
+
+        while (!(self.curTokenIs(.RBRACE) or self.curTokenIs(.EOF))) {
             if (self.parseStatement()) |stmt| {
                 block.statements.append(stmt) catch unreachable;
             }
@@ -342,6 +344,8 @@ pub const Parser = struct {
         if (self.parseExpression(.LOWEST)) |exp| {
             ifexp.condition = self.alloc.create(ast.Expression) catch unreachable;
             ifexp.condition.?.* = exp;
+        } else {
+            return null;
         }
 
         if (!self.expectPeek(.RPAREN))
@@ -351,9 +355,25 @@ pub const Parser = struct {
             return null;
 
         if (self.parseBlockStatement()) |block| {
-            // TODO: Cleanup memory management strategy!!!!!!
             ifexp.consequence = self.alloc.create(ast.BlockStatement) catch unreachable;
             ifexp.consequence.?.* = block;
+        } else {
+            ifexp.deinit();
+            return null;
+        }
+
+        if (self.nextTokenIs(.ELSE)) {
+            self.nextToken();
+
+            if (!self.expectPeek(.LBRACE)) {
+                ifexp.deinit();
+                return null;
+            }
+
+            if (self.parseBlockStatement()) |block| {
+                ifexp.alternative = self.alloc.create(ast.BlockStatement) catch unreachable;
+                ifexp.alternative.?.* = block;
+            }
         }
 
         return ast.Expression{ .if_expr = ifexp };
@@ -676,8 +696,15 @@ test "boolean literals" {
 
 test "if expressions" {
     const test_data = [_]TestData{
-        .{ .input = "if (x < y) {x} else {y};", .output = "if (x < y) {x} else {y};\n" },
+        .{
+            .input = "if (x < y) { x } else { y };",
+            .output = "if (x < y) {x} else {y};\n",
+        },
+        .{
+            .input = "if (5 - 3 < 4) { return true; } else { return false };",
+            .output = "if ((5 - 3) < 4) {return true} else {return false};\n",
+        },
     };
 
-    try testProgram(&test_data, 256);
+    try testProgram(&test_data, 2048);
 }

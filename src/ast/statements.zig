@@ -106,11 +106,13 @@ pub const LetStatement = struct {
 pub const BlockStatement = struct {
     const Self = @This();
     alloc: Allocator,
+    token: Token,
     statements: ArrayList(Statement),
 
-    pub fn init(alloc: Allocator) Self {
+    pub fn init(alloc: Allocator, token: Token) Self {
         return .{
             .alloc = alloc,
+            .token = token,
             .statements = ArrayList(Statement).init(alloc),
         };
     }

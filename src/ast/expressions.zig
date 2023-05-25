@@ -191,9 +191,12 @@ pub const IfExpression = struct {
         if (self.condition) |cond| {
             try cond.print(stream);
         }
+
+        try stream.print(" ", .{});
         if (self.consequence) |cons| {
             try cons.print(stream);
         }
+
         try stream.print(" ", .{});
         if (self.alternative) |alt| {
             try stream.print("else ", .{});
