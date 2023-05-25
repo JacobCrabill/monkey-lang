@@ -22,6 +22,7 @@ pub const Expression = union(enum) {
         switch (self.*) {
             .prefix_expr => |*pfx| pfx.deinit(),
             .infix_expr => |*ifx| ifx.deinit(),
+            .if_expr => |*ifx| ifx.deinit(),
             else => {},
         }
     }
@@ -119,8 +120,6 @@ pub const InfixExpression = struct {
     left: ?*Expression,
     operator: []const u8,
     right: ?*Expression,
-    lalloc: bool = false,
-    ralloc: bool = false,
 
     pub fn createLeft(self: *Self) !void {
         self.left = try self.alloc.create(Expression);
@@ -129,23 +128,16 @@ pub const InfixExpression = struct {
 
     pub fn createRight(self: *Self) !void {
         self.right = try self.alloc.create(Expression);
-        self.ralloc = true;
     }
 
     pub fn deinit(self: *Self) void {
-        if (self.left) |*left| {
-            left.*.deinit();
-            if (self.lalloc) {
-                self.alloc.destroy(left.*);
-                self.lalloc = false;
-            }
+        if (self.left) |*pleft| {
+            pleft.*.deinit();
+            self.alloc.destroy(pleft.*);
         }
-        if (self.right) |*right| {
-            right.*.deinit();
-            if (self.ralloc) {
-                self.alloc.destroy(right.*);
-                self.ralloc = false;
-            }
+        if (self.right) |*pright| {
+            pright.*.deinit();
+            self.alloc.destroy(pright.*);
         }
     }
 
@@ -178,6 +170,21 @@ pub const IfExpression = struct {
     condition: ?*Expression,
     consequence: ?*BlockStatement,
     alternative: ?*BlockStatement,
+
+    pub fn deinit(self: *Self) void {
+        if (self.condition) |*pcond| {
+            pcond.*.deinit();
+            self.alloc.destroy(pcond.*);
+        }
+        if (self.consequence) |*pcons| {
+            pcons.*.deinit();
+            self.alloc.destroy(pcons.*);
+        }
+        if (self.alternative) |*palt| {
+            palt.*.deinit();
+            self.alloc.destroy(palt.*);
+        }
+    }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("if ", .{});

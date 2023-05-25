@@ -28,6 +28,12 @@ pub const Statement = union(StatementType) {
             inline else => |s| try s.print(stream),
         }
     }
+
+    pub fn deinit(self: *Self) void {
+        switch (self.*) {
+            inline else => |*ps| ps.*.deinit(),
+        }
+    }
 };
 
 /// TODO:
@@ -42,6 +48,12 @@ pub const ReturnStatement = struct {
     const Self = @This();
     token: Token,
     value: ?Expression,
+
+    pub fn deinit(self: *Self) void {
+        if (self.value) |*expr| {
+            expr.deinit();
+        }
+    }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s} ", .{self.token.literal});
@@ -76,8 +88,8 @@ pub const LetStatement = struct {
     token: Token,
     ident: Token, // Identifier
     value: ?Expression,
-    //ident: Identifier,
-    //value: Expression,
+
+    pub fn deinit(_: *Self) void {}
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         const let = self.token.literal;
@@ -103,9 +115,9 @@ pub const BlockStatement = struct {
         };
     }
 
-    pub fn deinit(self: *Self) Self {
-        for (self.statements.items) |s| {
-            s.deinit();
+    pub fn deinit(self: *Self) void {
+        for (self.statements.items) |*s| {
+            s.*.deinit();
         }
         self.statements.deinit();
     }

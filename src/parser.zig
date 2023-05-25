@@ -67,7 +67,6 @@ pub const Parser = struct {
     cur_token: Token = undefined,
     next_token: Token = undefined,
     errors: ArrayList([]const u8),
-    expressions: ArrayList(ast.Expression),
 
     // Create and initialize a new Parser
     pub fn init(alloc: Allocator, lexer: *Lexer) Self {
@@ -75,7 +74,6 @@ pub const Parser = struct {
             .alloc = alloc,
             .lexer = lexer,
             .errors = ArrayList([]const u8).init(alloc),
-            .expressions = ArrayList(ast.Expression).init(alloc),
         };
         parser.nextToken();
         parser.nextToken();
@@ -85,7 +83,6 @@ pub const Parser = struct {
     /// Release all resources
     pub fn deinit(self: *Self) void {
         self.errors.deinit();
-        self.expressions.deinit();
     }
 
     /// Check if the current token is the given type
@@ -247,7 +244,7 @@ pub const Parser = struct {
             if (isOperator(self.next_token.kind)) {
                 self.nextToken();
                 // Copy 'left' onto the heap; make the next InfixExpression the new 'left'
-                var pleft: *ast.Expression = self.expressions.addOne() catch unreachable;
+                var pleft: *ast.Expression = self.alloc.create(ast.Expression) catch unreachable;
                 pleft.* = left;
                 left = self.parseInfixExpression(pleft);
             } else {
