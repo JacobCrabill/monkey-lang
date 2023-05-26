@@ -560,10 +560,11 @@ test "print ast" {
 
     try std.testing.expect(prog.statements.items.len == 3);
 
-    std.debug.print("Program AST:\n", .{});
-    std.debug.print("------------\n", .{});
-    try prog.print(std.io.getStdErr().writer());
-    std.debug.print("------------\n", .{});
+    // Can replace the buffer with stdout or stderr if desired
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const stream = fbs.writer();
+    try prog.print(stream);
 }
 
 test "identifier expresssion" {
@@ -680,7 +681,11 @@ test "infix expressions" {
     defer prog.deinit();
 
     try checkParseErrors(parser);
-    try prog.print(std.io.getStdErr().writer());
+
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const stream = fbs.writer();
+    try prog.print(stream);
 
     try std.testing.expect(prog.statements.items.len == expected.len);
 

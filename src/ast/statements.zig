@@ -89,7 +89,11 @@ pub const LetStatement = struct {
     ident: Token, // Identifier
     value: ?Expression,
 
-    pub fn deinit(_: *Self) void {}
+    pub fn deinit(self: *Self) void {
+        if (self.value) |*value| {
+            value.deinit();
+        }
+    }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         const let = self.token.literal;
