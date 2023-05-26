@@ -98,7 +98,6 @@ pub const LetStatement = struct {
     pub fn print(self: Self, stream: anytype) WriteError!void {
         const let = self.token.literal;
         const name = self.ident.literal;
-        // TODO: Check undefined
         try stream.print("{s} ", .{let});
         try stream.print("{s} = ", .{name});
         if (self.value) |value| {

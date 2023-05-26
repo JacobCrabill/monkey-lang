@@ -97,27 +97,27 @@ pub const Parser = struct {
     }
 
     /// Check if the current token is the given type
-    pub fn curTokenIs(self: Self, kind: TokenType) bool {
+    fn curTokenIs(self: Self, kind: TokenType) bool {
         return self.cur_token.kind == kind;
     }
 
     /// Check if the next token is of type 'kind'
-    pub fn nextTokenIs(self: Self, kind: TokenType) bool {
+    fn nextTokenIs(self: Self, kind: TokenType) bool {
         return self.next_token.kind == kind;
     }
 
     /// Check the operator precedence of the next token
-    pub fn peekPrecedence(self: Self) Operators {
+    fn peekPrecedence(self: Self) Operators {
         return precedenceMap(self.next_token.kind);
     }
 
     /// Check the operator precedence of the current token
-    pub fn curPrecedence(self: Self) Operators {
+    fn curPrecedence(self: Self) Operators {
         return precedenceMap(self.cur_token.kind);
     }
 
     /// Expect that the next token is of type 'kind'; advance token if so
-    pub fn expectPeek(self: *Self, kind: TokenType) bool {
+    fn expectPeek(self: *Self, kind: TokenType) bool {
         if (self.nextTokenIs(kind)) {
             self.nextToken();
             return true;
@@ -172,7 +172,7 @@ pub const Parser = struct {
     }
 
     /// Parse a single statement
-    pub fn parseStatement(self: *Self) ?Statement {
+    fn parseStatement(self: *Self) ?Statement {
         return switch (self.cur_token.kind) {
             .LET => self.parseLetStatement(),
             .RETURN => self.parseReturnStatement(),
@@ -180,7 +180,7 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parseLetStatement(self: *Self) ?Statement {
+    fn parseLetStatement(self: *Self) ?Statement {
         var ls = LetStatement{
             .token = self.cur_token,
             .ident = Token{},
@@ -199,16 +199,13 @@ pub const Parser = struct {
 
         ls.value = self.parseExpression(.LOWEST);
 
-        // TODO: We're continuing until the semicolon (or EOF)
-        // TODO: No expressions (yet....)
-        while (!(self.curTokenIs(.SEMI) or self.curTokenIs(.EOF))) {
+        if (self.nextTokenIs(.SEMI))
             self.nextToken();
-        }
 
         return Statement{ .let_statement = ls };
     }
 
-    pub fn parseReturnStatement(self: *Self) ?Statement {
+    fn parseReturnStatement(self: *Self) ?Statement {
         var rs = ReturnStatement{
             .token = self.cur_token,
             .value = null,
@@ -218,8 +215,7 @@ pub const Parser = struct {
 
         rs.value = self.parseExpression(.LOWEST);
 
-        // TODO: Parse expression
-        while (!(self.curTokenIs(.SEMI) or self.curTokenIs(.EOF)))
+        while (self.nextTokenIs(.SEMI))
             self.nextToken();
 
         return Statement{ .return_statement = rs };
@@ -271,6 +267,7 @@ pub const Parser = struct {
                 if (self.parseInfix(pleft)) |new_left| {
                     left = new_left;
                 } else {
+                    left.deinit();
                     self.makeError("Error parsing new Infix expression", .{});
                     logSourceInfo(@src());
                     return null;
@@ -562,7 +559,8 @@ test "let statements" {
     const input =
         \\let x = 5;
         \\let y = 10;
-        \\let foobar = 838383;
+        \\let foobar = bar + 10;
+        \\let foobar = add(x, y) + 10;
     ;
 
     var lex = Lexer.init(input);
@@ -570,14 +568,16 @@ test "let statements" {
 
     var prog: Program = try parser.parseProgram();
     defer prog.deinit();
+    defer parser.deinit();
 
     try checkParseErrors(parser);
 
-    try std.testing.expect(prog.statements.items.len == 3);
+    try std.testing.expect(prog.statements.items.len == 4);
 
     const expected_idents = [_]ast.Identifier{
         ast.Identifier.init(Token.init(.IDENT, "x")),
         ast.Identifier.init(Token.init(.IDENT, "y")),
+        ast.Identifier.init(Token.init(.IDENT, "foobar")),
         ast.Identifier.init(Token.init(.IDENT, "foobar")),
     };
 
@@ -878,10 +878,11 @@ pub fn main() !void {
     const GPA = std.heap.GeneralPurposeAllocator(.{});
     var gpa = GPA{};
     var alloc = gpa.allocator();
+    defer alloc.deinit();
 
     const buf_size: usize = 2048;
     const test_data = [_]TestData{
-        .{ .input = "add(x + y, false);", .output = "add(x + y, false);\n" },
+        .{ .input = "add(x + y, false);", .output = "(add(x + y, false));\n" },
         .{ .input = "add();", .output = "add();\n" },
         //.{ .input = "add(x);", .output = "add(x);\n" },
         //.{ .input = "add(x, y);", .output = "add(x, y);\n" },
@@ -893,7 +894,7 @@ pub fn main() !void {
         var fbs = std.io.fixedBufferStream(&buf);
         const stream = fbs.writer();
         const input = data.input;
-        //const output = data.output;
+        const output = data.output;
 
         // Process the input
         var lex = Lexer.init(input);
@@ -907,6 +908,6 @@ pub fn main() !void {
         try checkParseErrors(parser);
         try prog.print(stream);
 
-        //try std.testing.expectEqualSlices(u8, output, fbs.getWritten());
+        try std.testing.expectEqualSlices(u8, output, fbs.getWritten());
     }
 }

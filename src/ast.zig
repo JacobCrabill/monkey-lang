@@ -23,8 +23,7 @@ pub const Program = struct {
     pub fn deinit(self: *Self) void {
         for (self.statements.items) |*stmt| {
             switch (stmt.*) {
-                .expression_statement => |*es| es.deinit(),
-                else => {},
+                inline else => |*es| es.deinit(),
             }
         }
         self.statements.deinit();
