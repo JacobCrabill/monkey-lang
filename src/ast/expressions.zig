@@ -19,14 +19,11 @@ pub const Expression = union(enum) {
     infix_expr: InfixExpression,
     if_expr: IfExpression,
     fn_expr: FnExpression,
+    call_expr: CallExpression,
 
     pub fn deinit(self: *Self) void {
         switch (self.*) {
-            .prefix_expr => |*pfx| pfx.deinit(),
-            .infix_expr => |*ifx| ifx.deinit(),
-            .if_expr => |*ifx| ifx.deinit(),
-            .fn_expr => |*fnx| fnx.deinit(),
-            else => {},
+            inline else => |*e| e.deinit(),
         }
     }
 
@@ -35,12 +32,20 @@ pub const Expression = union(enum) {
             inline else => |s| try s.print(stream),
         }
     }
+
+    pub fn tokenLiteral(self: Self) []const u8 {
+        return switch (self) {
+            inline else => |e| e.token.literal,
+        };
+    }
 };
 
 pub const Identifier = struct {
     const Self = @This();
     token: Token,
     value: []const u8,
+
+    pub fn deinit(_: Self) void {}
 
     pub fn init(token: Token) Self {
         return .{
@@ -63,6 +68,8 @@ pub const IntegerLiteral = struct {
     token: Token,
     value: i64,
 
+    pub fn deinit(_: Self) void {}
+
     pub fn init(token: Token) Self {
         //const value: i64 = std.fmt.parseInt(i64, token.literal, 10) orelse return null;
         const value: i64 = std.fmt.parseInt(i64, token.literal, 10) catch 0;
@@ -81,6 +88,8 @@ pub const BooleanLiteral = struct {
     const Self = @This();
     token: Token,
     value: bool,
+
+    pub fn deinit(_: Self) void {}
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s}", .{self.token.literal});
@@ -233,5 +242,38 @@ pub const FnExpression = struct {
         if (self.block) |blk| {
             try blk.print(stream);
         }
+    }
+};
+
+pub const CallExpression = struct {
+    const Self = @This();
+    alloc: Allocator,
+    token: Token,
+    function: ?*Expression,
+    args: ArrayList(Expression),
+
+    pub fn deinit(self: *Self) void {
+        if (self.function) |*pfunc| {
+            pfunc.*.deinit();
+            self.alloc.destroy(pfunc.*);
+        }
+        for (self.args.items) |*arg| {
+            arg.deinit();
+        }
+        self.args.deinit();
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        if (self.function) |func| {
+            try func.print(stream);
+        }
+        try stream.print("(", .{});
+        for (self.args.items, 0..) |arg, i| {
+            try arg.print(stream);
+            if (i < self.args.items.len - 1) {
+                try stream.print(", ", .{});
+            }
+        }
+        try stream.print(")", .{});
     }
 };

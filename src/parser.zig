@@ -22,6 +22,15 @@ const LetStatement = ast.LetStatement;
 const ReturnStatement = ast.ReturnStatement;
 const ExpressionStatement = ast.ExpressionStatement;
 
+pub fn logSourceInfo(src: std.builtin.SourceLocation) void {
+    std.debug.print("{s}:{d}:{d}: {s}\n", .{
+        src.file,
+        src.line,
+        src.column,
+        src.fn_name,
+    });
+}
+
 const Operators = enum(u8) {
     LOWEST,
     EQUALS, // ==
@@ -42,6 +51,7 @@ pub fn precedenceMap(token_type: TokenType) Operators {
         .MINUS => .SUM,
         .SLASH => .PRODUCT,
         .STAR => .PRODUCT,
+        .LPAREN => .CALL,
         else => .LOWEST,
     };
 }
@@ -56,6 +66,7 @@ pub fn isOperator(token_type: TokenType) bool {
         .NEQ => true,
         .LT => true,
         .GT => true,
+        .LPAREN => true,
         else => false,
     };
 }
@@ -257,9 +268,15 @@ pub const Parser = struct {
                 // Copy 'left' onto the heap; make the next InfixExpression the new 'left'
                 var pleft: *ast.Expression = self.alloc.create(ast.Expression) catch unreachable;
                 pleft.* = left;
-                left = self.parseInfixExpression(pleft);
+                if (self.parseInfix(pleft)) |new_left| {
+                    left = new_left;
+                } else {
+                    self.makeError("Error parsing new Infix expression", .{});
+                    logSourceInfo(@src());
+                    return null;
+                }
             } else {
-                break;
+                return left;
             }
         }
 
@@ -281,6 +298,14 @@ pub const Parser = struct {
                 self.makeError("No prefix parser for type {any}", .{kind});
                 return null;
             },
+        };
+    }
+
+    fn parseInfix(self: *Self, left: *ast.Expression) ?ast.Expression {
+        return switch (self.cur_token.kind) {
+            .FUNCTION => self.parseCallExpression(left),
+            .LPAREN => self.parseCallExpression(left),
+            else => self.parseInfixExpression(left),
         };
     }
 
@@ -320,8 +345,7 @@ pub const Parser = struct {
             expr.createRight() catch unreachable;
             expr.right.?.* = ifx_expr;
         } else {
-            // TODO: make parser error
-            std.debug.print("Could not parse right expression for {any}\n", .{left.*});
+            self.makeError("Could not parse right expression for {any}", .{left.*});
         }
 
         return ast.Expression{ .infix_expr = expr };
@@ -331,7 +355,10 @@ pub const Parser = struct {
         self.nextToken();
 
         // TODO: Error handling!
-        var exp = self.parseExpression(.LOWEST).?;
+        var exp: ?ast.Expression = null;
+        if (self.parseExpression(.LOWEST)) |new_exp| {
+            exp = new_exp;
+        }
 
         if (!self.expectPeek(.RPAREN)) {
             return null;
@@ -437,6 +464,55 @@ pub const Parser = struct {
         }
 
         return ast.Expression{ .fn_expr = fnexp };
+    }
+
+    fn parseCallExpression(self: *Self, left: *ast.Expression) ?ast.Expression {
+        var callexp = ast.CallExpression{
+            .alloc = self.alloc,
+            .token = self.cur_token,
+            .function = left,
+            .args = ArrayList(ast.Expression).init(self.alloc),
+        };
+
+        if (self.nextTokenIs(.RPAREN)) {
+            self.nextToken();
+            return ast.Expression{ .call_expr = callexp };
+        }
+
+        // Parse Arguments List
+
+        self.nextToken();
+        if (self.parseExpression(.LOWEST)) |exp| {
+            callexp.args.append(exp) catch unreachable;
+        } else {
+            self.makeError("Unable to parse argument '{s}' to function '{s}'", .{
+                self.cur_token.literal,
+                left.tokenLiteral(),
+            });
+            logSourceInfo(@src());
+        }
+
+        while (self.nextTokenIs(.COMMA)) {
+            self.nextToken();
+            self.nextToken();
+            if (self.parseExpression(.LOWEST)) |exp| {
+                callexp.args.append(exp) catch unreachable;
+            } else {
+                self.makeError("Unable to parse argument '{s}' to function '{s}'", .{
+                    self.cur_token.literal,
+                    left.tokenLiteral(),
+                });
+                logSourceInfo(@src());
+            }
+        }
+
+        if (!self.expectPeek(.RPAREN)) {
+            logSourceInfo(@src());
+            callexp.deinit();
+            return null;
+        }
+
+        return ast.Expression{ .call_expr = callexp };
     }
 
     // -------- Identifiers and Literals --------
@@ -787,4 +863,50 @@ test "fn expressions" {
     };
 
     try testProgram(&test_data, 2048);
+}
+
+test "call expressions" {
+    const test_data = [_]TestData{
+        .{ .input = "add(x, y);", .output = "add(x, y);\n" },
+        .{ .input = "add(5 - 3 * 4, false, foo);", .output = "add((5 - (3 * 4)), false, foo);\n" },
+    };
+
+    try testProgram(&test_data, 2048);
+}
+
+pub fn main() !void {
+    const GPA = std.heap.GeneralPurposeAllocator(.{});
+    var gpa = GPA{};
+    var alloc = gpa.allocator();
+
+    const buf_size: usize = 2048;
+    const test_data = [_]TestData{
+        .{ .input = "add(x + y, false);", .output = "add(x + y, false);\n" },
+        .{ .input = "add();", .output = "add();\n" },
+        //.{ .input = "add(x);", .output = "add(x);\n" },
+        //.{ .input = "add(x, y);", .output = "add(x, y);\n" },
+        //.{ .input = "add(5 - 3 * 4, false, foo);", .output = "add((5 - (3 * 4)), false, foo);\n" },
+    };
+
+    for (test_data) |data| {
+        var buf: [buf_size]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        const stream = fbs.writer();
+        const input = data.input;
+        //const output = data.output;
+
+        // Process the input
+        var lex = Lexer.init(input);
+        var parser = Parser.init(alloc, &lex);
+        defer parser.deinit();
+
+        var prog: Program = try parser.parseProgram();
+        defer prog.deinit();
+
+        // Check the output
+        try checkParseErrors(parser);
+        try prog.print(stream);
+
+        //try std.testing.expectEqualSlices(u8, output, fbs.getWritten());
+    }
 }
