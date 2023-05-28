@@ -9,6 +9,7 @@ const obj = @import("object.zig");
 
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
+const TokenType = @import("tokens.zig").TokenType;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -16,6 +17,7 @@ const Program = ast.Program;
 const Expression = ast.Expression;
 const Statement = ast.Statement;
 const Object = obj.Object;
+const ObjectType = obj.ObjectType;
 const NullObject = obj.NullObject;
 
 pub fn evalProgram(prog: Program) Object {
@@ -50,15 +52,17 @@ pub fn evalExpression(expression: Expression) Object {
         .integer_literal => |i| obj.makeInteger(i.value),
         .boolean_literal => |b| obj.makeBoolean(b.value),
         .prefix_expr => |p| evalPrefixExpression(p),
+        .infix_expr => |i| evalInfixExpression(i),
         else => NullObject,
     };
 }
 
 fn evalPrefixExpression(prefix_expression: ast.PrefixExpression) Object {
     if (prefix_expression.right) |right| {
+        const result: Object = evalExpression(right.*);
         return switch (prefix_expression.token.kind) {
-            .MINUS => evalMinusPrefix(right.*),
-            .BANG => evalBangPrefix(right.*),
+            .MINUS => evalMinusPrefix(result),
+            .BANG => evalBangPrefix(result),
             .LPAREN => NullObject,
             else => NullObject,
         };
@@ -67,18 +71,45 @@ fn evalPrefixExpression(prefix_expression: ast.PrefixExpression) Object {
     return NullObject;
 }
 
-fn evalMinusPrefix(expression: Expression) Object {
-    return switch (evalExpression(expression)) {
+fn evalInfixExpression(infix_expression: ast.InfixExpression) Object {
+    if (infix_expression.left == null or infix_expression.right == null) {
+        return NullObject;
+    }
+
+    const left: Object = evalExpression(infix_expression.left.?.*);
+    const right: Object = evalExpression(infix_expression.right.?.*);
+
+    if (@enumToInt(left) != @enumToInt(right))
+        return NullObject;
+
+    return switch (left) {
+        .integer => evalIntegerInfix(left, right, infix_expression.token.kind),
+        else => NullObject,
+    };
+}
+
+fn evalMinusPrefix(object: Object) Object {
+    return switch (object) {
         .integer => |i| return obj.makeInteger(-i.value),
         else => NullObject,
     };
 }
 
-fn evalBangPrefix(expression: Expression) Object {
-    return switch (evalExpression(expression)) {
+fn evalBangPrefix(object: Object) Object {
+    return switch (object) {
         .boolean => |b| return obj.makeBoolean(!b.value),
         .none => return obj.makeBoolean(true),
         else => return obj.makeBoolean(false),
+    };
+}
+
+fn evalIntegerInfix(left: Object, right: Object, operator: TokenType) Object {
+    return switch (operator) {
+        .PLUS => obj.makeInteger(left.integer.value + right.integer.value),
+        .MINUS => obj.makeInteger(left.integer.value - right.integer.value),
+        .STAR => obj.makeInteger(left.integer.value * right.integer.value),
+        .SLASH => obj.makeInteger(@divFloor(left.integer.value, right.integer.value)),
+        else => NullObject,
     };
 }
 
@@ -122,6 +153,10 @@ test "eval integers" {
         .{ .input = "10", .value = 10 },
         .{ .input = "-42", .value = -42 },
         .{ .input = "-1", .value = -1 },
+        .{ .input = "-1 + 5", .value = 4 },
+        .{ .input = "5 + -5", .value = 0 },
+        .{ .input = "5 + -(5 * 4) + 1/1", .value = -14 },
+        .{ .input = "(0 - 4 * 3) / 3 + 4", .value = 0 },
     };
 
     for (data) |d| {
@@ -142,6 +177,11 @@ test "eval booleans" {
         .{ .input = "!false", .value = true },
         .{ .input = "!true", .value = false },
         .{ .input = "!!true", .value = true },
+        //.{ .input = "5 > 4", .value = true },
+        //.{ .input = "5 < 4", .value = false },
+        //.{ .input = "5 != 4", .value = true },
+        //.{ .input = "5 == (4 + 1)", .value = true },
+        //.{ .input = "(5 * 1) == (4 + 1)", .value = true },
     };
 
     for (data) |d| {

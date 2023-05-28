@@ -878,15 +878,14 @@ pub fn main() !void {
     const GPA = std.heap.GeneralPurposeAllocator(.{});
     var gpa = GPA{};
     var alloc = gpa.allocator();
-    defer alloc.deinit();
 
     const buf_size: usize = 2048;
     const test_data = [_]TestData{
-        .{ .input = "add(x + y, false);", .output = "(add(x + y, false));\n" },
+        .{ .input = "add(x + y, false);", .output = "add((x + y), false);\n" },
         .{ .input = "add();", .output = "add();\n" },
-        //.{ .input = "add(x);", .output = "add(x);\n" },
-        //.{ .input = "add(x, y);", .output = "add(x, y);\n" },
-        //.{ .input = "add(5 - 3 * 4, false, foo);", .output = "add((5 - (3 * 4)), false, foo);\n" },
+        .{ .input = "add(x);", .output = "add(x);\n" },
+        .{ .input = "add(x, y);", .output = "add(x, y);\n" },
+        .{ .input = "add(5 - 3 * 4, false, foo);", .output = "add((5 - (3 * 4)), false, foo);\n" },
     };
 
     for (test_data) |data| {
