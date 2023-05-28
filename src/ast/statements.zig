@@ -9,7 +9,7 @@ const TokenType = Tokens.TokenType;
 const Token = Tokens.Token;
 const Expression = Expressions.Expression;
 
-pub const StatementType = enum {
+pub const StatementType = enum(u8) {
     let_statement,
     return_statement,
     expression_statement,
@@ -36,14 +36,6 @@ pub const Statement = union(StatementType) {
     }
 };
 
-/// TODO:
-/// Should we instead have this:
-/// pub const Statement = struct {
-///   const Self = @This();
-///   kind: StatementType,
-///   token: Token,
-///   value: Token,
-/// };
 pub const ReturnStatement = struct {
     const Self = @This();
     token: Token,

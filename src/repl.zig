@@ -2,6 +2,7 @@ const std = @import("std");
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const Program = @import("ast.zig").Program;
+const Eval = @import("evaluator.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -42,20 +43,10 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
                 // Parse and print the statement(s)
                 var prog: Program = try parser.parseProgram();
                 defer prog.deinit();
-                try prog.printStatements(self.output);
 
-                // Print the tokens
-                // var tok = lex.nextToken();
-                // while (tok.kind != .EOF) {
-                //     try self.output.print("{any}\n", .{tok});
-
-                //     // Allow the user to exit without ctrl-c
-                //     if (tok.kind == .EXIT) {
-                //         return;
-                //     }
-
-                //     tok = lex.nextToken();
-                // }
+                const result = Eval.evalProgram(prog);
+                try result.print(self.output);
+                try self.output.print("\n", .{});
             }
         }
 

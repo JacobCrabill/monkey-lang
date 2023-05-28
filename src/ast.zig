@@ -1,11 +1,32 @@
 const std = @import("std");
 const Tokens = @import("tokens.zig");
 const Statements = @import("ast/statements.zig");
+const Expressions = @import("ast/expressions.zig");
 
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const WriteError = std.os.WriteError;
 const Statement = Statements.Statement;
+const Expression = Expressions.Statement;
+
+/// Representation of a single node in the AST
+pub const Node = union(enum) {
+    const Self = @This();
+    expression: Expression,
+    statement: Statement,
+
+    pub fn deinit(self: *Self) void {
+        switch (self) {
+            inline else => |*s| s.*.deinit(),
+        }
+    }
+
+    pub fn print(self: Self, stream: anytype) !void {
+        switch (self) {
+            inline else => |s| try s.print(stream),
+        }
+    }
+};
 
 /// The AST representation of a program
 pub const Program = struct {
