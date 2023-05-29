@@ -88,7 +88,7 @@ pub const Evaluator = struct {
                 if (exps.value) |exp| {
                     break :blk self.evalExpression(exp);
                 } else {
-                    break :blk NullObject;
+                    break :blk self.makeError("Empty expression in statement {any}", .{exps});
                 }
             },
             .block_statement => |blocks| self.evalStatements(blocks.statements.items),
@@ -97,7 +97,7 @@ pub const Evaluator = struct {
                 if (rets.value) |exp| {
                     break :blk self.evalExpression(exp);
                 } else {
-                    break :blk NullObject;
+                    break :blk self.makeError("Empty expression in statement {any}", .{rets});
                 }
             },
             else => self.makeError("Invalid statement: {any}", .{statement}),
@@ -118,15 +118,19 @@ pub const Evaluator = struct {
     fn evalPrefixExpression(self: *Self, prefix_expression: ast.PrefixExpression) Object {
         if (prefix_expression.right) |right| {
             const result: Object = self.evalExpression(right.*);
+
+            if (result == ObjectType.error_msg)
+                return result;
+
             return switch (prefix_expression.token.kind) {
                 .MINUS => self.evalMinusPrefix(result),
                 .BANG => self.evalBangPrefix(result),
                 .LPAREN => NullObject,
-                else => self.makeError("Invalid prefix operator '{s}'", .{prefix_expression.operator}),
+                else => self.makeError("Invalid prefix operator: '{s}'", .{prefix_expression.operator}),
             };
         }
 
-        return NullObject;
+        return self.makeError("Empty rval in expression: {any}", .{prefix_expression});
     }
 
     fn evalInfixExpression(self: *Self, infix_expression: ast.InfixExpression) Object {
@@ -135,7 +139,12 @@ pub const Evaluator = struct {
         }
 
         const left: Object = self.evalExpression(infix_expression.left.?.*);
+        if (left == ObjectType.error_msg)
+            return left;
+
         const right: Object = self.evalExpression(infix_expression.right.?.*);
+        if (right == ObjectType.error_msg)
+            return right;
 
         if (@enumToInt(left) != @enumToInt(right)) {
             return self.makeError("Invalid expression: '{s} {s} {s}'", .{
@@ -166,6 +175,10 @@ pub const Evaluator = struct {
             return NullObject;
 
         const condition: Object = self.evalExpression(if_expression.condition.?.*);
+
+        if (condition == ObjectType.error_msg)
+            return condition;
+
         if (condition != ObjectType.boolean)
             return NullObject;
 
