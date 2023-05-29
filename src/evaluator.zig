@@ -20,98 +20,204 @@ const Object = obj.Object;
 const ObjectType = obj.ObjectType;
 const NullObject = obj.NullObject;
 
-pub fn evalProgram(prog: Program) Object {
-    return evalStatements(prog.statements.items);
-}
+pub const Evaluator = struct {
+    const Self = @This();
+    alloc: Allocator,
+    is_return_value: bool,
 
-pub fn evalStatements(statements: []Statement) Object {
-    var result: Object = NullObject;
-
-    for (statements) |stmt| {
-        result = evalStatement(stmt);
+    pub fn init(alloc: Allocator) Self {
+        return .{ .alloc = alloc, .is_return_value = false };
     }
 
-    return result;
-}
+    pub fn deinit(_: *Self) void {}
 
-pub fn evalStatement(statement: Statement) Object {
-    return switch (statement) {
-        .expression_statement => |exps| blk: {
-            if (exps.value) |exp| {
-                break :blk evalExpression(exp);
-            } else {
-                break :blk NullObject;
+    pub fn reset(self: *Self) void {
+        self.is_return_value = false;
+        self.deinit();
+    }
+
+    pub fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
+        std.io.getStdErr().writer().print("Eval Error: ", .{}) catch unreachable;
+        std.io.getStdErr().writer().print(msg, args) catch unreachable;
+        std.io.getStdErr().writer().print("\n", .{}) catch unreachable;
+    }
+
+    pub fn evalProgram(self: *Self, prog: Program) Object {
+        return self.evalStatements(prog.statements.items);
+    }
+
+    pub fn evalStatements(self: *Self, statements: []Statement) Object {
+        var result: Object = NullObject;
+
+        for (statements) |stmt| {
+            result = self.evalStatement(stmt);
+            if (self.is_return_value) {
+                self.is_return_value = false;
+                return result;
             }
-        },
-        else => NullObject,
-    };
-}
+        }
 
-pub fn evalExpression(expression: Expression) Object {
-    return switch (expression) {
-        .integer_literal => |i| obj.makeInteger(i.value),
-        .boolean_literal => |b| obj.makeBoolean(b.value),
-        .prefix_expr => |p| evalPrefixExpression(p),
-        .infix_expr => |i| evalInfixExpression(i),
-        else => NullObject,
-    };
-}
+        return result;
+    }
 
-fn evalPrefixExpression(prefix_expression: ast.PrefixExpression) Object {
-    if (prefix_expression.right) |right| {
-        const result: Object = evalExpression(right.*);
-        return switch (prefix_expression.token.kind) {
-            .MINUS => evalMinusPrefix(result),
-            .BANG => evalBangPrefix(result),
-            .LPAREN => NullObject,
-            else => NullObject,
+    pub fn evalStatement(self: *Self, statement: Statement) Object {
+        return switch (statement) {
+            .expression_statement => |exps| blk: {
+                if (exps.value) |exp| {
+                    break :blk self.evalExpression(exp);
+                } else {
+                    break :blk NullObject;
+                }
+            },
+            .return_statement => |rets| blk: {
+                self.is_return_value = true;
+                if (rets.value) |exp| {
+                    break :blk self.evalExpression(exp);
+                } else {
+                    break :blk NullObject;
+                }
+            },
+            else => err: {
+                self.makeEvalError("Invalid statement {any}", .{statement});
+                break :err NullObject;
+            },
         };
     }
 
-    return NullObject;
-}
+    pub fn evalExpression(self: *Self, expression: Expression) Object {
+        return switch (expression) {
+            .integer_literal => |i| obj.makeInteger(i.value),
+            .boolean_literal => |b| obj.makeBoolean(b.value),
+            .prefix_expr => |p| self.evalPrefixExpression(p),
+            .infix_expr => |i| self.evalInfixExpression(i),
+            .if_expr => |i| self.evalIfexpression(i),
+            else => err: {
+                self.makeEvalError("Invalid expression {any}", .{expression});
+                break :err NullObject;
+            },
+        };
+    }
 
-fn evalInfixExpression(infix_expression: ast.InfixExpression) Object {
-    if (infix_expression.left == null or infix_expression.right == null) {
+    fn evalPrefixExpression(self: *Self, prefix_expression: ast.PrefixExpression) Object {
+        if (prefix_expression.right) |right| {
+            const result: Object = self.evalExpression(right.*);
+            return switch (prefix_expression.token.kind) {
+                .MINUS => self.evalMinusPrefix(result),
+                .BANG => self.evalBangPrefix(result),
+                .LPAREN => NullObject,
+                else => err: {
+                    self.makeEvalError("Invalid prefix operator '{s}'", .{prefix_expression.operator});
+                    break :err NullObject;
+                },
+            };
+        }
+
         return NullObject;
     }
 
-    const left: Object = evalExpression(infix_expression.left.?.*);
-    const right: Object = evalExpression(infix_expression.right.?.*);
+    fn evalInfixExpression(self: *Self, infix_expression: ast.InfixExpression) Object {
+        if (infix_expression.left == null or infix_expression.right == null) {
+            return NullObject;
+        }
 
-    if (@enumToInt(left) != @enumToInt(right))
+        const left: Object = self.evalExpression(infix_expression.left.?.*);
+        const right: Object = self.evalExpression(infix_expression.right.?.*);
+
+        if (@enumToInt(left) != @enumToInt(right)) {
+            self.makeEvalError("Invalid expression: '{s} {s} {s}'", .{
+                infix_expression.left.?.*.tokenLiteral(),
+                infix_expression.operator,
+                infix_expression.right.?.*.tokenLiteral(),
+            });
+            return NullObject;
+        }
+
+        return switch (left) {
+            .integer => self.evalIntegerInfix(left, right, infix_expression.token.kind),
+            .boolean => self.evalBooleanInfix(left, right, infix_expression.token.kind),
+            else => err: {
+                self.makeEvalError("Invalid expression: '{s} {s} {s}'", .{
+                    infix_expression.left.?.*.tokenLiteral(),
+                    infix_expression.operator,
+                    infix_expression.right.?.*.tokenLiteral(),
+                });
+                break :err NullObject;
+            },
+        };
+    }
+
+    fn evalIfexpression(self: *Self, if_expression: ast.IfExpression) Object {
+        // We require a condition
+        if (if_expression.condition == null)
+            return NullObject;
+
+        // We also require something to do based on that condition
+        if (if_expression.consequence == null and if_expression.alternative == null)
+            return NullObject;
+
+        const condition: Object = self.evalExpression(if_expression.condition.?.*);
+        if (condition != ObjectType.boolean)
+            return NullObject;
+
+        if (condition.boolean.value) {
+            if (if_expression.consequence) |pcons| {
+                return self.evalStatements(pcons.statements.items);
+            }
+        } else {
+            if (if_expression.alternative) |palt| {
+                return self.evalStatements(palt.statements.items);
+            }
+        }
+
         return NullObject;
+    }
 
-    return switch (left) {
-        .integer => evalIntegerInfix(left, right, infix_expression.token.kind),
-        else => NullObject,
-    };
-}
+    fn evalMinusPrefix(self: *Self, object: Object) Object {
+        return switch (object) {
+            .integer => |i| return obj.makeInteger(-i.value),
+            else => err: {
+                self.makeEvalError("Invalid expression: -{any}", .{object});
+                break :err NullObject;
+            },
+        };
+    }
 
-fn evalMinusPrefix(object: Object) Object {
-    return switch (object) {
-        .integer => |i| return obj.makeInteger(-i.value),
-        else => NullObject,
-    };
-}
+    fn evalBangPrefix(_: *Self, object: Object) Object {
+        return switch (object) {
+            .boolean => |b| return obj.makeBoolean(!b.value),
+            .none => return obj.makeBoolean(true),
+            else => return obj.makeBoolean(false),
+        };
+    }
 
-fn evalBangPrefix(object: Object) Object {
-    return switch (object) {
-        .boolean => |b| return obj.makeBoolean(!b.value),
-        .none => return obj.makeBoolean(true),
-        else => return obj.makeBoolean(false),
-    };
-}
+    fn evalIntegerInfix(self: *Self, left: Object, right: Object, operator: TokenType) Object {
+        return switch (operator) {
+            .PLUS => obj.makeInteger(left.integer.value + right.integer.value),
+            .MINUS => obj.makeInteger(left.integer.value - right.integer.value),
+            .STAR => obj.makeInteger(left.integer.value * right.integer.value),
+            .SLASH => obj.makeInteger(@divFloor(left.integer.value, right.integer.value)),
+            .EQ => obj.makeBoolean(left.integer.value == right.integer.value),
+            .NEQ => obj.makeBoolean(left.integer.value != right.integer.value),
+            .LT => obj.makeBoolean(left.integer.value < right.integer.value),
+            .GT => obj.makeBoolean(left.integer.value > right.integer.value),
+            else => err: {
+                self.makeEvalError("Invalid operator {any} for IntegerInfix", .{operator});
+                break :err NullObject;
+            },
+        };
+    }
 
-fn evalIntegerInfix(left: Object, right: Object, operator: TokenType) Object {
-    return switch (operator) {
-        .PLUS => obj.makeInteger(left.integer.value + right.integer.value),
-        .MINUS => obj.makeInteger(left.integer.value - right.integer.value),
-        .STAR => obj.makeInteger(left.integer.value * right.integer.value),
-        .SLASH => obj.makeInteger(@divFloor(left.integer.value, right.integer.value)),
-        else => NullObject,
-    };
-}
+    fn evalBooleanInfix(self: *Self, left: Object, right: Object, operator: TokenType) Object {
+        return switch (operator) {
+            .EQ => obj.makeBoolean(left.boolean.value == right.boolean.value),
+            .NEQ => obj.makeBoolean(left.boolean.value != right.boolean.value),
+            else => err: {
+                self.makeEvalError("Invalid operator {any} for BooleanInfix", .{operator});
+                break :err NullObject;
+            },
+        };
+    }
+};
 
 // ---------------- Unit Test Helper Functions ----------------
 
@@ -123,7 +229,8 @@ fn testEval(alloc: Allocator, input: []const u8) ?Object {
     var prog: Program = parser.parseProgram() catch return null;
     defer prog.deinit();
 
-    return evalProgram(prog);
+    var evaluator = Evaluator.init(alloc);
+    return evaluator.evalProgram(prog);
 }
 
 fn compareIntegers(object: Object, value: i64) bool {
@@ -157,6 +264,8 @@ test "eval integers" {
         .{ .input = "5 + -5", .value = 0 },
         .{ .input = "5 + -(5 * 4) + 1/1", .value = -14 },
         .{ .input = "(0 - 4 * 3) / 3 + 4", .value = 0 },
+        .{ .input = "if (5 - 2 == 1) { true } else { 0; }", .value = 0 },
+        .{ .input = "if (2 != 3 - 2) { 10; } else { 0; }", .value = 10 },
     };
 
     for (data) |d| {
@@ -177,11 +286,15 @@ test "eval booleans" {
         .{ .input = "!false", .value = true },
         .{ .input = "!true", .value = false },
         .{ .input = "!!true", .value = true },
-        //.{ .input = "5 > 4", .value = true },
-        //.{ .input = "5 < 4", .value = false },
-        //.{ .input = "5 != 4", .value = true },
-        //.{ .input = "5 == (4 + 1)", .value = true },
-        //.{ .input = "(5 * 1) == (4 + 1)", .value = true },
+        .{ .input = "5 > 4", .value = true },
+        .{ .input = "5 < 4", .value = false },
+        .{ .input = "5 != 4", .value = true },
+        .{ .input = "5 == (4 + 1)", .value = true },
+        .{ .input = "(5 * 1) == (4 + 1)", .value = true },
+        .{ .input = "if (5 - 4 == 1) { true } else { 0; }", .value = true },
+        .{ .input = "if (5 - 5 == 5) { true } else { false; }", .value = false },
+        .{ .input = "return 5 != 4", .value = true },
+        .{ .input = "return 5 - 1/1 == 4*(2/2)", .value = true },
     };
 
     for (data) |d| {
@@ -189,3 +302,5 @@ test "eval booleans" {
         try std.testing.expect(compareBooleans(result, d.value));
     }
 }
+
+// TODO: Test expecting errors

@@ -33,6 +33,8 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
 
             var buffer: [1048]u8 = undefined;
 
+            var evaluator = Eval.Evaluator.init(self.alloc);
+
             while (true) {
                 try self.output.print(">> ", .{});
                 const input = (try self.nextLine(&buffer)).?;
@@ -44,7 +46,7 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
                 var prog: Program = try parser.parseProgram();
                 defer prog.deinit();
 
-                const result = Eval.evalProgram(prog);
+                const result = evaluator.evalProgram(prog);
                 try result.print(self.output);
                 try self.output.print("\n", .{});
             }
