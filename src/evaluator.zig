@@ -24,22 +24,44 @@ pub const Evaluator = struct {
     const Self = @This();
     alloc: Allocator,
     is_return_value: bool,
+    errors: ArrayList([]const u8), // heap-allocated error messages
 
     pub fn init(alloc: Allocator) Self {
-        return .{ .alloc = alloc, .is_return_value = false };
+        return .{
+            .alloc = alloc,
+            .is_return_value = false,
+            .errors = ArrayList([]const u8).init(alloc),
+        };
     }
 
-    pub fn deinit(_: *Self) void {}
+    pub fn deinit(self: *Self) void {
+        for (self.errors) |err| {
+            self.alloc.free(err);
+        }
+        self.errors.deinit();
+    }
 
     pub fn reset(self: *Self) void {
         self.is_return_value = false;
-        self.deinit();
+
+        for (self.errors) |err| {
+            self.alloc.free(err);
+        }
+        self.errors.clearAndFree();
     }
 
     pub fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
         std.io.getStdErr().writer().print("Eval Error: ", .{}) catch unreachable;
         std.io.getStdErr().writer().print(msg, args) catch unreachable;
         std.io.getStdErr().writer().print("\n", .{}) catch unreachable;
+    }
+
+    fn makeError(self: *Self, comptime fmt: []const u8, args: anytype) Object {
+        const msg = std.fmt.allocPrint(self.alloc, fmt, args) catch unreachable;
+        self.errors.append(msg) catch unreachable;
+        return .{
+            .error_msg = obj.ErrorMessage{ .message = msg },
+        };
     }
 
     pub fn evalProgram(self: *Self, prog: Program) Object {
@@ -51,7 +73,7 @@ pub const Evaluator = struct {
 
         for (statements) |stmt| {
             result = self.evalStatement(stmt);
-            if (self.is_return_value) {
+            if (self.is_return_value or result == ObjectType.error_msg) {
                 self.is_return_value = false;
                 return result;
             }
@@ -69,6 +91,7 @@ pub const Evaluator = struct {
                     break :blk NullObject;
                 }
             },
+            .block_statement => |blocks| self.evalStatements(blocks.statements.items),
             .return_statement => |rets| blk: {
                 self.is_return_value = true;
                 if (rets.value) |exp| {
@@ -77,10 +100,7 @@ pub const Evaluator = struct {
                     break :blk NullObject;
                 }
             },
-            else => err: {
-                self.makeEvalError("Invalid statement {any}", .{statement});
-                break :err NullObject;
-            },
+            else => self.makeError("Invalid statement: {any}", .{statement}),
         };
     }
 
@@ -91,10 +111,7 @@ pub const Evaluator = struct {
             .prefix_expr => |p| self.evalPrefixExpression(p),
             .infix_expr => |i| self.evalInfixExpression(i),
             .if_expr => |i| self.evalIfexpression(i),
-            else => err: {
-                self.makeEvalError("Invalid expression {any}", .{expression});
-                break :err NullObject;
-            },
+            else => self.makeError("Invalid expression {any}", .{expression}),
         };
     }
 
@@ -105,10 +122,7 @@ pub const Evaluator = struct {
                 .MINUS => self.evalMinusPrefix(result),
                 .BANG => self.evalBangPrefix(result),
                 .LPAREN => NullObject,
-                else => err: {
-                    self.makeEvalError("Invalid prefix operator '{s}'", .{prefix_expression.operator});
-                    break :err NullObject;
-                },
+                else => self.makeError("Invalid prefix operator '{s}'", .{prefix_expression.operator}),
             };
         }
 
@@ -124,25 +138,21 @@ pub const Evaluator = struct {
         const right: Object = self.evalExpression(infix_expression.right.?.*);
 
         if (@enumToInt(left) != @enumToInt(right)) {
-            self.makeEvalError("Invalid expression: '{s} {s} {s}'", .{
+            return self.makeError("Invalid expression: '{s} {s} {s}'", .{
                 infix_expression.left.?.*.tokenLiteral(),
                 infix_expression.operator,
                 infix_expression.right.?.*.tokenLiteral(),
             });
-            return NullObject;
         }
 
         return switch (left) {
             .integer => self.evalIntegerInfix(left, right, infix_expression.token.kind),
             .boolean => self.evalBooleanInfix(left, right, infix_expression.token.kind),
-            else => err: {
-                self.makeEvalError("Invalid expression: '{s} {s} {s}'", .{
-                    infix_expression.left.?.*.tokenLiteral(),
-                    infix_expression.operator,
-                    infix_expression.right.?.*.tokenLiteral(),
-                });
-                break :err NullObject;
-            },
+            else => self.makeError("Invalid expression: '{s} {s} {s}'", .{
+                infix_expression.left.?.*.tokenLiteral(),
+                infix_expression.operator,
+                infix_expression.right.?.*.tokenLiteral(),
+            }),
         };
     }
 
@@ -175,10 +185,7 @@ pub const Evaluator = struct {
     fn evalMinusPrefix(self: *Self, object: Object) Object {
         return switch (object) {
             .integer => |i| return obj.makeInteger(-i.value),
-            else => err: {
-                self.makeEvalError("Invalid expression: -{any}", .{object});
-                break :err NullObject;
-            },
+            else => self.makeError("Invalid expression: -{any}", .{object}),
         };
     }
 
@@ -200,10 +207,7 @@ pub const Evaluator = struct {
             .NEQ => obj.makeBoolean(left.integer.value != right.integer.value),
             .LT => obj.makeBoolean(left.integer.value < right.integer.value),
             .GT => obj.makeBoolean(left.integer.value > right.integer.value),
-            else => err: {
-                self.makeEvalError("Invalid operator {any} for IntegerInfix", .{operator});
-                break :err NullObject;
-            },
+            else => self.makeError("Invalid operator {any} for IntegerInfix", .{operator}),
         };
     }
 
@@ -211,10 +215,7 @@ pub const Evaluator = struct {
         return switch (operator) {
             .EQ => obj.makeBoolean(left.boolean.value == right.boolean.value),
             .NEQ => obj.makeBoolean(left.boolean.value != right.boolean.value),
-            else => err: {
-                self.makeEvalError("Invalid operator {any} for BooleanInfix", .{operator});
-                break :err NullObject;
-            },
+            else => self.makeError("Invalid operator {any} for BooleanInfix", .{operator}),
         };
     }
 };
@@ -266,6 +267,8 @@ test "eval integers" {
         .{ .input = "(0 - 4 * 3) / 3 + 4", .value = 0 },
         .{ .input = "if (5 - 2 == 1) { true } else { 0; }", .value = 0 },
         .{ .input = "if (2 != 3 - 2) { 10; } else { 0; }", .value = 10 },
+        .{ .input = "if (2 != 4 - 2) { 10; } else { return 0; return 10; }", .value = 0 },
+        .{ .input = "if (2 != 3 - 2) { return 10; return 12; } else { 0; }", .value = 10 },
     };
 
     for (data) |d| {

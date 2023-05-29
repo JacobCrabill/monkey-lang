@@ -5,6 +5,7 @@ pub const ObjectType = enum(u8) {
     integer,
     boolean,
     function,
+    error_msg,
 };
 
 pub const Object = union(ObjectType) {
@@ -13,6 +14,7 @@ pub const Object = union(ObjectType) {
     integer: Integer,
     boolean: Boolean,
     function: Function,
+    error_msg: ErrorMessage,
 
     pub fn print(self: Self, stream: anytype) !void {
         switch (self) {
@@ -20,6 +22,7 @@ pub const Object = union(ObjectType) {
             .integer => |i| try stream.print("{d}", .{i.value}),
             .boolean => |b| try stream.print("{any}", .{b.value}),
             .function => |f| try stream.print("{s}", .{f.name}),
+            .error_msg => |e| try stream.print("ERROR: {s}", .{e.message}),
         }
     }
 };
@@ -36,6 +39,11 @@ pub const Boolean = struct {
 
 pub const Function = struct {
     name: []const u8,
+};
+
+pub const ErrorMessage = struct {
+    const Self = @This();
+    message: []const u8,
 };
 
 pub fn makeInteger(value: i64) Object {
