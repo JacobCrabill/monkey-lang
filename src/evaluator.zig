@@ -19,38 +19,43 @@ const Statement = ast.Statement;
 const Object = obj.Object;
 const ObjectType = obj.ObjectType;
 const NullObject = obj.NullObject;
+const ScopeStack = obj.ScopeStack;
 
 pub const Evaluator = struct {
     const Self = @This();
     alloc: Allocator,
     is_return_value: bool,
     errors: ArrayList([]const u8), // heap-allocated error messages
+    stack: ScopeStack,
 
     pub fn init(alloc: Allocator) Self {
         return .{
             .alloc = alloc,
             .is_return_value = false,
             .errors = ArrayList([]const u8).init(alloc),
+            .stack = ScopeStack.init(alloc),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.errors) |err| {
+        for (self.errors.items) |err| {
             self.alloc.free(err);
         }
         self.errors.deinit();
+        self.stack.deinit();
     }
 
     pub fn reset(self: *Self) void {
         self.is_return_value = false;
 
-        for (self.errors) |err| {
+        for (self.errors.items) |err| {
             self.alloc.free(err);
         }
         self.errors.clearAndFree();
+        self.stack.reset();
     }
 
-    pub fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
+    fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
         std.io.getStdErr().writer().print("Eval Error: ", .{}) catch unreachable;
         std.io.getStdErr().writer().print(msg, args) catch unreachable;
         std.io.getStdErr().writer().print("\n", .{}) catch unreachable;
@@ -100,8 +105,18 @@ pub const Evaluator = struct {
                     break :blk self.makeError("Empty expression in statement {any}", .{rets});
                 }
             },
-            else => self.makeError("Invalid statement: {any}", .{statement}),
+            .let_statement => |lets| self.evalLetStatement(lets),
         };
+    }
+
+    fn evalLetStatement(self: *Self, statement: ast.LetStatement) Object {
+        // Todo: error handling
+        if (statement.value) |exp| {
+            const value = self.evalExpression(exp);
+            self.stack.set(statement.ident.literal, value);
+        }
+
+        return NullObject;
     }
 
     pub fn evalExpression(self: *Self, expression: Expression) Object {
@@ -110,7 +125,8 @@ pub const Evaluator = struct {
             .boolean_literal => |b| obj.makeBoolean(b.value),
             .prefix_expr => |p| self.evalPrefixExpression(p),
             .infix_expr => |i| self.evalInfixExpression(i),
-            .if_expr => |i| self.evalIfexpression(i),
+            .if_expr => |i| self.evalIfExpression(i),
+            //.fn_expr => |f| self.evalFnExpression(f),
             else => self.makeError("Invalid expression {any}", .{expression}),
         };
     }
@@ -165,7 +181,7 @@ pub const Evaluator = struct {
         };
     }
 
-    fn evalIfexpression(self: *Self, if_expression: ast.IfExpression) Object {
+    fn evalIfExpression(self: *Self, if_expression: ast.IfExpression) Object {
         // We require a condition
         if (if_expression.condition == null)
             return NullObject;
@@ -194,6 +210,16 @@ pub const Evaluator = struct {
 
         return NullObject;
     }
+
+    //fn evalFnExpression(self: *Self, fn_expression: ast.FnExpression) Object {
+    //    // Todo:
+    //    // - Add Scope / Environment hashmap type
+    //    // - Add ArrayList of Scope (stack)
+    //    // - Push new Scope onto stack here
+    //    if (fn_expression.block == null)
+    //        return NullObject;
+
+    //}
 
     fn evalMinusPrefix(self: *Self, object: Object) Object {
         return switch (object) {
@@ -244,6 +270,7 @@ fn testEval(alloc: Allocator, input: []const u8) ?Object {
     defer prog.deinit();
 
     var evaluator = Evaluator.init(alloc);
+    defer evaluator.deinit();
     return evaluator.evalProgram(prog);
 }
 
