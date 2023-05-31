@@ -55,20 +55,6 @@ pub const Evaluator = struct {
         self.stack.reset();
     }
 
-    fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
-        std.io.getStdErr().writer().print("Eval Error: ", .{}) catch unreachable;
-        std.io.getStdErr().writer().print(msg, args) catch unreachable;
-        std.io.getStdErr().writer().print("\n", .{}) catch unreachable;
-    }
-
-    fn makeError(self: *Self, comptime fmt: []const u8, args: anytype) Object {
-        const msg = std.fmt.allocPrint(self.alloc, fmt, args) catch unreachable;
-        self.errors.append(msg) catch unreachable;
-        return .{
-            .error_msg = obj.ErrorMessage{ .message = msg },
-        };
-    }
-
     pub fn evalProgram(self: *Self, prog: Program) Object {
         return self.evalStatements(prog.statements.items);
     }
@@ -89,34 +75,11 @@ pub const Evaluator = struct {
 
     pub fn evalStatement(self: *Self, statement: Statement) Object {
         return switch (statement) {
-            .expression_statement => |exps| blk: {
-                if (exps.value) |exp| {
-                    break :blk self.evalExpression(exp);
-                } else {
-                    break :blk self.makeError("Empty expression in statement {any}", .{exps});
-                }
-            },
+            .expression_statement => |exps| self.evalExpressionStatement(exps),
             .block_statement => |blocks| self.evalStatements(blocks.statements.items),
-            .return_statement => |rets| blk: {
-                self.is_return_value = true;
-                if (rets.value) |exp| {
-                    break :blk self.evalExpression(exp);
-                } else {
-                    break :blk self.makeError("Empty expression in statement {any}", .{rets});
-                }
-            },
+            .return_statement => |rets| self.evalReturnStatement(rets),
             .let_statement => |lets| self.evalLetStatement(lets),
         };
-    }
-
-    fn evalLetStatement(self: *Self, statement: ast.LetStatement) Object {
-        // Todo: error handling
-        if (statement.value) |exp| {
-            const value = self.evalExpression(exp);
-            self.stack.set(statement.ident.literal, value);
-        }
-
-        return NullObject;
     }
 
     pub fn evalExpression(self: *Self, expression: Expression) Object {
@@ -126,9 +89,37 @@ pub const Evaluator = struct {
             .prefix_expr => |p| self.evalPrefixExpression(p),
             .infix_expr => |i| self.evalInfixExpression(i),
             .if_expr => |i| self.evalIfExpression(i),
+            .identifier => |i| self.evalIdentifier(i),
             //.fn_expr => |f| self.evalFnExpression(f),
             else => self.makeError("Invalid expression {any}", .{expression}),
         };
+    }
+
+    fn evalExpressionStatement(self: *Self, statement: ast.ExpressionStatement) Object {
+        if (statement.value) |exp| {
+            return self.evalExpression(exp);
+        } else {
+            return self.makeError("Empty expression in statement {any}", .{statement});
+        }
+    }
+
+    fn evalReturnStatement(self: *Self, statement: ast.ReturnStatement) Object {
+        self.is_return_value = true;
+        if (statement.value) |exp| {
+            return self.evalExpression(exp);
+        } else {
+            return self.makeError("Empty expression in statement {any}", .{statement});
+        }
+    }
+
+    fn evalLetStatement(self: *Self, statement: ast.LetStatement) Object {
+        if (statement.value) |exp| {
+            const value = self.evalExpression(exp);
+            self.stack.set(statement.ident.literal, value);
+            return value;
+        } else {
+            return self.makeError("Empty expression in statement {any}", .{statement});
+        }
     }
 
     fn evalPrefixExpression(self: *Self, prefix_expression: ast.PrefixExpression) Object {
@@ -211,6 +202,14 @@ pub const Evaluator = struct {
         return NullObject;
     }
 
+    fn evalIdentifier(self: *Self, identifier: ast.Identifier) Object {
+        if (self.stack.get(identifier.value)) |ident| {
+            return ident;
+        }
+
+        return self.makeError("Unknown identifier: {s}", .{identifier.value});
+    }
+
     //fn evalFnExpression(self: *Self, fn_expression: ast.FnExpression) Object {
     //    // Todo:
     //    // - Add Scope / Environment hashmap type
@@ -255,6 +254,20 @@ pub const Evaluator = struct {
             .EQ => obj.makeBoolean(left.boolean.value == right.boolean.value),
             .NEQ => obj.makeBoolean(left.boolean.value != right.boolean.value),
             else => self.makeError("Invalid operator {any} for BooleanInfix", .{operator}),
+        };
+    }
+
+    fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
+        std.io.getStdErr().writer().print("Eval Error: ", .{}) catch unreachable;
+        std.io.getStdErr().writer().print(msg, args) catch unreachable;
+        std.io.getStdErr().writer().print("\n", .{}) catch unreachable;
+    }
+
+    fn makeError(self: *Self, comptime fmt: []const u8, args: anytype) Object {
+        const msg = std.fmt.allocPrint(self.alloc, fmt, args) catch unreachable;
+        self.errors.append(msg) catch unreachable;
+        return .{
+            .error_msg = obj.ErrorMessage{ .message = msg },
         };
     }
 };
@@ -347,3 +360,28 @@ test "eval booleans" {
 }
 
 // TODO: Test expecting errors
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var alloc = gpa.allocator();
+
+    const input = "let a = 42;\na + 1;\n";
+    const output = std.io.getStdErr().writer();
+
+    var lex = Lexer.init(input);
+    var parser = Parser.init(alloc, &lex);
+    defer parser.deinit();
+
+    // Parse and print the statement(s)
+    var prog: Program = try parser.parseProgram();
+    defer prog.deinit();
+
+    try output.print("Program:\n", .{});
+    try prog.print(output);
+    try output.print("-- End Program\n", .{});
+
+    var evaluator = Evaluator.init(alloc);
+    const result = evaluator.evalProgram(prog);
+    try result.print(output);
+    try output.print("\n", .{});
+}
