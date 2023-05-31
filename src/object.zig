@@ -1,17 +1,55 @@
 const std = @import("std");
 
+const ast = struct {
+    usingnamespace @import("ast.zig");
+    usingnamespace @import("ast/statements.zig");
+    usingnamespace @import("ast/expressions.zig");
+};
+
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Map = std.StringHashMap;
 const BufSet = std.BufSet;
 
-pub const Scope = Map(Object);
+pub const Scope = struct {
+    const Self = @This();
+    alloc: Allocator,
+    map: Map(Object),
+    keys: BufSet,
+
+    pub fn init(alloc: Allocator) Self {
+        return .{
+            .alloc = alloc,
+            .map = Map(Object).init(alloc),
+            .keys = BufSet.init(alloc),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+        self.keys.deinit();
+    }
+
+    pub fn get(self: Self, key: []const u8) ?Object {
+        return self.map.get(key);
+    }
+
+    pub fn set(self: *Self, key: []const u8, value: Object) void {
+        const owned_key = self.alloc.alloc(u8, key.len) catch unreachable;
+        @memcpy(owned_key, key);
+        self.keys.insert(owned_key) catch unreachable;
+        self.map.put(owned_key, value) catch unreachable;
+    }
+
+    pub fn contains(self: Self, key: []const u8) bool {
+        return self.keys.contains(key);
+    }
+};
 
 pub const ScopeStack = struct {
     const Self = @This();
     alloc: Allocator,
     stack: ArrayList(Scope),
-    keys: BufSet,
     idx: usize,
 
     /// Create a new instance with a single empty Scope
@@ -19,7 +57,6 @@ pub const ScopeStack = struct {
         var scope = Self{
             .alloc = alloc,
             .stack = ArrayList(Scope).init(alloc),
-            .keys = BufSet.init(alloc),
             .idx = 0,
         };
         scope.pushNew();
@@ -58,20 +95,12 @@ pub const ScopeStack = struct {
 
     /// Get a value from the latest scope
     pub fn get(self: *Self, key: []const u8) ?Object {
-        return self.stack.getLast().get(key);
+        return self.stack.items[self.idx].get(key);
     }
 
     /// Put a value into the latest scope
     pub fn set(self: *Self, key: []const u8, value: Object) void {
-        // StringHashMap doesn't copy the key
-        // Since the buffer where the key is coming from may change at any time,
-        // copy the contents of 'key' locally (and free later)
-        // TODO: remove unused keys from popped stacks
-        const owned_key = self.alloc.alloc(u8, key.len) catch unreachable;
-        @memcpy(owned_key, key);
-        self.keys.insert(owned_key) catch unreachable;
-
-        self.stack.items[self.idx].put(owned_key, value) catch unreachable;
+        self.stack.items[self.idx].set(key, value);
     }
 };
 
@@ -96,7 +125,7 @@ pub const Object = union(ObjectType) {
             .none => try stream.print("null", .{}),
             .integer => |i| try stream.print("{d}", .{i.value}),
             .boolean => |b| try stream.print("{any}", .{b.value}),
-            .function => |f| try stream.print("{s}", .{f.name}),
+            .function => |f| try f.print(stream),
             .error_msg => |e| try stream.print("ERROR: {s}", .{e.message}),
         }
     }
@@ -113,7 +142,29 @@ pub const Boolean = struct {
 };
 
 pub const Function = struct {
-    name: []const u8,
+    const Self = @This();
+    alloc: Allocator,
+    parameters: ArrayList(ast.Identifier),
+    body: ast.BlockStatement,
+
+    pub fn init(alloc: Allocator, parameters: ArrayList(ast.Identifier), body: *ast.BlockStatement) Self {
+        return .{
+            .alloc = alloc,
+            .parameters = parameters.clone() catch unreachable,
+            .body = body.*,
+        };
+    }
+
+    pub fn print(self: Self, stream: anytype) !void {
+        try stream.print("fn(", .{});
+        for (self.parameters.items, 0..) |p, i| {
+            try p.print(stream);
+            if (i < self.parameters.items.len - 1)
+                try stream.print(", ", .{});
+        }
+        try stream.print(") ", .{});
+        try self.body.print(stream);
+    }
 };
 
 pub const ErrorMessage = struct {

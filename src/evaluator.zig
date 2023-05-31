@@ -90,7 +90,7 @@ pub const Evaluator = struct {
             .infix_expr => |i| self.evalInfixExpression(i),
             .if_expr => |i| self.evalIfExpression(i),
             .identifier => |i| self.evalIdentifier(i),
-            //.fn_expr => |f| self.evalFnExpression(f),
+            .fn_expr => |f| self.evalFnExpression(f),
             else => self.makeError("Invalid expression {any}", .{expression}),
         };
     }
@@ -210,15 +210,12 @@ pub const Evaluator = struct {
         return self.makeError("Unknown identifier: {s}", .{identifier.value});
     }
 
-    //fn evalFnExpression(self: *Self, fn_expression: ast.FnExpression) Object {
-    //    // Todo:
-    //    // - Add Scope / Environment hashmap type
-    //    // - Add ArrayList of Scope (stack)
-    //    // - Push new Scope onto stack here
-    //    if (fn_expression.block == null)
-    //        return NullObject;
+    fn evalFnExpression(self: *Self, fn_exp: ast.FnExpression) Object {
+        if (fn_exp.block == null)
+            return NullObject;
 
-    //}
+        return .{ .function = obj.Function.init(self.alloc, fn_exp.parameters, fn_exp.block.?) };
+    }
 
     fn evalMinusPrefix(self: *Self, object: Object) Object {
         return switch (object) {
