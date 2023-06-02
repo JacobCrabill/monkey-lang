@@ -34,6 +34,13 @@ pub const Statement = union(StatementType) {
             inline else => |*ps| ps.*.deinit(),
         }
     }
+
+    pub fn clone(self: Self) Self {
+        var copy: Statement = switch (self) {
+            inline else => |s| s.clone(),
+        };
+        return copy;
+    }
 };
 
 pub const ReturnStatement = struct {
@@ -52,6 +59,13 @@ pub const ReturnStatement = struct {
         if (self.value) |value| {
             try value.print(stream);
         }
+    }
+
+    pub fn clone(self: Self) Self {
+        return Self{
+            .token = self.token.clone(), // TODO: do we want tokens to own their literal strings?
+            .value = self.value.clone(),
+        };
     }
 };
 
@@ -72,6 +86,13 @@ pub const ExpressionStatement = struct {
         } else {
             try stream.print("null", .{});
         }
+    }
+
+    pub fn clone(self: Self) Self {
+        return Self{
+            .token = self.token.clone(),
+            .value = self.value.?.clone() orelse null,
+        };
     }
 };
 
@@ -95,6 +116,14 @@ pub const LetStatement = struct {
         if (self.value) |value| {
             try value.print(stream);
         }
+    }
+
+    pub fn clone(self: Self) Self {
+        return Self{
+            .token = self.token.clone(),
+            .ident = self.ident.clone(),
+            .value = self.value.?.clone() orelse null,
+        };
     }
 };
 
@@ -126,5 +155,19 @@ pub const BlockStatement = struct {
             try stream.print(";\n", .{});
         }
         try stream.print("}}", .{});
+    }
+
+    pub fn clone(self: Self) Self {
+        var copy = Self{
+            .alloc = self.alloc,
+            .token = self.token.clone(),
+            .statements = ArrayList(Statement).initCapacity(self.alloc, self.statements.items.len),
+        };
+
+        for (self.statements.items) |stmt| {
+            copy.statements.append(stmt.clone());
+        }
+
+        return copy;
     }
 };

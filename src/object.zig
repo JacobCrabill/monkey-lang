@@ -151,8 +151,16 @@ pub const Function = struct {
         return .{
             .alloc = alloc,
             .parameters = parameters.clone() catch unreachable,
-            .body = body.*,
+            .body = ast.BlockStatement{
+                .alloc = alloc,
+                .token = body.token,
+                .statements = body.statements.clone() catch unreachable,
+            },
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.body.deinit();
     }
 
     pub fn print(self: Self, stream: anytype) !void {
