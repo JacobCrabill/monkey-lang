@@ -5,6 +5,7 @@ const Program = @import("ast.zig").Program;
 const Eval = @import("evaluator.zig");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 
 pub fn makeRepl(alloc: Allocator, input: anytype, output: anytype) Repl(@TypeOf(input), @TypeOf(output)) {
     return Repl(@TypeOf(input), @TypeOf(output)).init(alloc, input, output);
@@ -16,6 +17,8 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
         alloc: Allocator,
         input: InStream,
         output: OutStream,
+        max_input_size: usize = 65535,
+        commands: ArrayList([]const u8),
 
         // Create
         pub fn init(alloc: Allocator, input: InStream, output: OutStream) Self {
@@ -23,7 +26,15 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
                 .alloc = alloc,
                 .input = input,
                 .output = output,
+                .commands = ArrayList([]const u8).init(alloc),
             };
+        }
+
+        pub fn deinit(self: *Self) void {
+            for (self.commands.items) |*str| {
+                self.alloc.free(str.*);
+            }
+            self.commands.deinit();
         }
 
         // Run the REPL
@@ -31,13 +42,14 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
             try self.output.print("Welcome to Monkey!\n", .{});
             try self.output.print("  version: 0.0.1\n", .{});
 
-            var buffer: [1048]u8 = undefined;
+            //var buffer: [1048]u8 = undefined;
 
             var evaluator = Eval.Evaluator.init(self.alloc);
 
             while (true) {
                 try self.output.print(">> ", .{});
-                const input = (try self.nextLine(&buffer)).?;
+                //const input = (try self.nextLine(&buffer)).?;
+                const input = (try self.nextLine()).?;
                 var lex = Lexer.init(input);
                 var parser = Parser.init(self.alloc, &lex);
                 defer parser.deinit();
@@ -52,10 +64,16 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
             }
         }
 
-        fn nextLine(self: *Self, buffer: []u8) !?[]const u8 {
-            var line = (try self.input.readUntilDelimiterOrEof(
-                buffer,
+        fn nextLine(self: *Self) !?[]const u8 {
+            //fn nextLine(self: *Self, buffer: []u8) !?[]const u8 {
+            //var line = (try self.input.readUntilDelimiterOrEof(
+            //    buffer,
+            //    '\n',
+            //)) orelse return null;
+            var line = (try self.input.readUntilDelimiterOrEofAlloc(
+                self.alloc,
                 '\n',
+                self.max_input_size,
             )) orelse return null;
 
             // trim annoying windows-only carriage return character

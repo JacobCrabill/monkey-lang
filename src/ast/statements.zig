@@ -63,7 +63,7 @@ pub const ReturnStatement = struct {
 
     pub fn clone(self: Self) Self {
         return Self{
-            .token = self.token.clone(), // TODO: do we want tokens to own their literal strings?
+            .token = self.token,
             .value = self.value.clone(),
         };
     }
@@ -90,7 +90,7 @@ pub const ExpressionStatement = struct {
 
     pub fn clone(self: Self) Self {
         return Self{
-            .token = self.token.clone(),
+            .token = self.token,
             .value = self.value.?.clone() orelse null,
         };
     }
@@ -120,8 +120,8 @@ pub const LetStatement = struct {
 
     pub fn clone(self: Self) Self {
         return Self{
-            .token = self.token.clone(),
-            .ident = self.ident.clone(),
+            .token = self.token,
+            .ident = self.ident,
             .value = self.value.?.clone() orelse null,
         };
     }
@@ -160,7 +160,7 @@ pub const BlockStatement = struct {
     pub fn clone(self: Self) Self {
         var copy = Self{
             .alloc = self.alloc,
-            .token = self.token.clone(),
+            .token = self.token,
             .statements = ArrayList(Statement).initCapacity(self.alloc, self.statements.items.len),
         };
 

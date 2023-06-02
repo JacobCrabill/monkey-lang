@@ -38,6 +38,12 @@ pub const Expression = union(enum) {
             inline else => |e| e.token.literal,
         };
     }
+
+    pub fn clone(self: Self) Self {
+        return switch (self) {
+            inline else => |e| e.clone(),
+        };
+    }
 };
 
 pub const Identifier = struct {
@@ -60,6 +66,13 @@ pub const Identifier = struct {
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s}", .{self.value});
+    }
+
+    pub fn clone(self: Self) Self {
+        return Self{
+            .token = self.token,
+            .value = undefined, // TODO
+        };
     }
 };
 

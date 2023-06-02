@@ -91,7 +91,7 @@ pub const Evaluator = struct {
             .if_expr => |i| self.evalIfExpression(i),
             .identifier => |i| self.evalIdentifier(i),
             .fn_expr => |f| self.evalFnExpression(f),
-            else => self.makeError("Invalid expression {any}", .{expression}),
+            .call_expr => |c| self.evalCallExpression(c),
         };
     }
 
@@ -214,7 +214,13 @@ pub const Evaluator = struct {
         if (fn_exp.block == null)
             return NullObject;
 
+        // TODO: Create new Scope for the function, cloning the current scope
         return .{ .function = obj.Function.init(self.alloc, fn_exp.parameters, fn_exp.block.?) };
+    }
+
+    fn evalCallExpression(self: *Self, call_expr: ast.CallExpression) Object {
+        _ = call_expr;
+        return self.makeError("Calls not implemented yet!", .{});
     }
 
     fn evalMinusPrefix(self: *Self, object: Object) Object {
