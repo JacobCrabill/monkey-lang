@@ -65,17 +65,22 @@ pub const Evaluator = struct {
     }
 
     pub fn evalStatements(self: *Self, statements: []Statement) Object {
-        var result: Object = NullObject;
+        var results = ArrayList(Object).init(self.alloc);
+        defer {
+            for (results.items) |*item| item.deinit();
+            results.deinit();
+        }
 
         for (statements) |stmt| {
-            result = self.evalStatement(stmt);
+            var result = self.evalStatement(stmt);
             if (self.is_return_value or result == ObjectType.error_msg) {
                 self.is_return_value = false;
                 return result;
             }
+            results.append(result) catch unreachable;
         }
 
-        return result;
+        return results.pop();
     }
 
     pub fn evalStatement(self: *Self, statement: Statement) Object {
@@ -334,7 +339,8 @@ test "eval integers" {
     };
 
     for (data) |d| {
-        const result: Object = testEval(std.testing.allocator, d.input).?;
+        var result: Object = testEval(std.testing.allocator, d.input).?;
+        defer result.deinit();
         try std.testing.expect(compareIntegers(result, d.value));
     }
 }
@@ -363,8 +369,26 @@ test "eval booleans" {
     };
 
     for (data) |d| {
-        const result: Object = testEval(std.testing.allocator, d.input).?;
+        var result: Object = testEval(std.testing.allocator, d.input).?;
+        defer result.deinit();
         try std.testing.expect(compareBooleans(result, d.value));
+    }
+}
+
+test "eval functions" {
+    const TestData = struct {
+        input: []const u8,
+        value: i64,
+    };
+
+    const data = [_]TestData{
+        .{ .input = "let add = fn(x,y) { return x + y; }; add(1,2);", .value = 3 },
+    };
+
+    for (data) |d| {
+        var result: Object = testEval(std.testing.allocator, d.input).?;
+        defer result.deinit();
+        try std.testing.expect(compareIntegers(result, d.value));
     }
 }
 
@@ -374,7 +398,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var alloc = gpa.allocator();
 
-    const input = "let a = 42;\na + 1;\n";
+    const input = "let a = fn(x, y) { return x + y; };\na(2, 3) + 1;\n";
     const output = std.io.getStdErr().writer();
 
     var lex = Lexer.init(input);

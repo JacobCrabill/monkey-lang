@@ -26,11 +26,19 @@ pub const Scope = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        var iter = self.map.iterator();
+        while (iter.next()) |kv| {
+            self.alloc.free(kv.key_ptr.*);
+            kv.value_ptr.deinit();
+        }
+
         self.map.deinit();
         self.keys.deinit();
     }
 
     pub fn clone(self: Self) Self {
+        // TODO: copy key memory!!!
+        // This is only a shallow clone
         return .{
             .alloc = self.alloc,
             .map = self.map.clone() catch unreachable,
@@ -42,11 +50,13 @@ pub const Scope = struct {
         return self.map.get(key);
     }
 
+    /// Add an entry to the current Scope.
+    /// Given value is copied upon insertion.
     pub fn set(self: *Self, key: []const u8, value: Object) void {
         const owned_key = self.alloc.alloc(u8, key.len) catch unreachable;
         @memcpy(owned_key, key);
-        self.keys.insert(owned_key) catch unreachable;
-        self.map.put(owned_key, value) catch unreachable;
+        self.map.put(owned_key, value.clone()) catch unreachable;
+        self.keys.insert(key) catch unreachable;
     }
 
     pub fn contains(self: Self, key: []const u8) bool {
@@ -85,7 +95,7 @@ pub const ScopeStack = struct {
             stack.deinit();
         }
         self.stack.deinit();
-        self.keys.deinit();
+        self.idx = 0;
     }
 
     /// Clear all existing scopes, and create a single new empty scope
@@ -156,6 +166,22 @@ pub const Object = union(ObjectType) {
             .error_msg => |e| try stream.print("ERROR: {s}", .{e.message}),
         }
     }
+
+    pub fn deinit(self: *Self) void {
+        switch (self.*) {
+            .function => |*f| f.deinit(),
+            inline else => {},
+        }
+    }
+
+    /// Clone the Object instance, creating new copies of any heap allocations
+    /// Caller owns returned heap data
+    pub fn clone(self: Self) Self {
+        return switch (self) {
+            .function => |f| Self{ .function = f.clone() },
+            else => self,
+        };
+    }
 };
 
 pub const Null = struct {};
@@ -175,7 +201,7 @@ pub const Function = struct {
     body: ast.BlockStatement,
     scope: Scope,
 
-    pub fn init(alloc: Allocator, parameters: ArrayList(ast.Identifier), body: *ast.BlockStatement, scope: Scope) Self {
+    pub fn init(alloc: Allocator, parameters: ArrayList(ast.Identifier), body: *const ast.BlockStatement, scope: Scope) Self {
         return .{
             .alloc = alloc,
             .parameters = parameters.clone() catch unreachable,
@@ -185,7 +211,13 @@ pub const Function = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.parameters.deinit();
         self.body.deinit();
+        self.scope.deinit();
+    }
+
+    pub fn clone(self: Self) Self {
+        return Self.init(self.alloc, self.parameters, &self.body, self.scope);
     }
 
     pub fn print(self: Self, stream: anytype) !void {
