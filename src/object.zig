@@ -30,6 +30,14 @@ pub const Scope = struct {
         self.keys.deinit();
     }
 
+    pub fn clone(self: Self) Self {
+        return .{
+            .alloc = self.alloc,
+            .map = self.map.clone() catch unreachable,
+            .keys = self.keys.clone() catch unreachable,
+        };
+    }
+
     pub fn get(self: Self, key: []const u8) ?Object {
         return self.map.get(key);
     }
@@ -43,6 +51,14 @@ pub const Scope = struct {
 
     pub fn contains(self: Self, key: []const u8) bool {
         return self.keys.contains(key);
+    }
+
+    /// DEBUG
+    pub fn print(self: Self) void {
+        var iter = self.keys.iterator();
+        while (iter.next()) |pkey| {
+            std.debug.print("{s}\n", .{pkey.*});
+        }
     }
 };
 
@@ -92,6 +108,9 @@ pub const ScopeStack = struct {
         self.idx -= 1;
         return self.stack.pop();
     }
+    pub fn getCopy(self: *Self) Scope {
+        return self.stack.items[self.idx].clone();
+    }
 
     /// Get a value from the latest scope
     pub fn get(self: *Self, key: []const u8) ?Object {
@@ -101,6 +120,14 @@ pub const ScopeStack = struct {
     /// Put a value into the latest scope
     pub fn set(self: *Self, key: []const u8, value: Object) void {
         self.stack.items[self.idx].set(key, value);
+    }
+
+    /// DEBUG
+    pub fn print(self: Self) void {
+        for (self.stack.items, 0..) |scope, i| {
+            std.debug.print("Scope {d}: ", .{i});
+            scope.print();
+        }
     }
 };
 
@@ -146,16 +173,14 @@ pub const Function = struct {
     alloc: Allocator,
     parameters: ArrayList(ast.Identifier),
     body: ast.BlockStatement,
+    scope: Scope,
 
-    pub fn init(alloc: Allocator, parameters: ArrayList(ast.Identifier), body: *ast.BlockStatement) Self {
+    pub fn init(alloc: Allocator, parameters: ArrayList(ast.Identifier), body: *ast.BlockStatement, scope: Scope) Self {
         return .{
             .alloc = alloc,
             .parameters = parameters.clone() catch unreachable,
-            .body = ast.BlockStatement{
-                .alloc = alloc,
-                .token = body.token,
-                .statements = body.statements.clone() catch unreachable,
-            },
+            .body = body.clone(),
+            .scope = scope,
         };
     }
 

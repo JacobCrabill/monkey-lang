@@ -37,7 +37,7 @@ pub const Statement = union(StatementType) {
 
     pub fn clone(self: Self) Self {
         var copy: Statement = switch (self) {
-            inline else => |s| s.clone(),
+            inline else => |s| s.cloneStatement(),
         };
         return copy;
     }
@@ -51,6 +51,7 @@ pub const ReturnStatement = struct {
     pub fn deinit(self: *Self) void {
         if (self.value) |*expr| {
             expr.deinit();
+            self.value = null;
         }
     }
 
@@ -62,10 +63,17 @@ pub const ReturnStatement = struct {
     }
 
     pub fn clone(self: Self) Self {
+        var value: ?Expression = null;
+        if (self.value) |pvalue| value = pvalue.clone();
+
         return Self{
             .token = self.token,
-            .value = self.value.clone(),
+            .value = value,
         };
+    }
+
+    pub fn cloneStatement(self: Self) Statement {
+        return Statement{ .return_statement = self.clone() };
     }
 };
 
@@ -77,6 +85,7 @@ pub const ExpressionStatement = struct {
     pub fn deinit(self: *Self) void {
         if (self.value) |*value| {
             value.deinit();
+            self.value = null;
         }
     }
 
@@ -89,10 +98,17 @@ pub const ExpressionStatement = struct {
     }
 
     pub fn clone(self: Self) Self {
+        var value: ?Expression = null;
+        if (self.value) |pvalue| value = pvalue.clone();
+
         return Self{
             .token = self.token,
-            .value = self.value.?.clone() orelse null,
+            .value = value,
         };
+    }
+
+    pub fn cloneStatement(self: Self) Statement {
+        return Statement{ .expression_statement = self.clone() };
     }
 };
 
@@ -105,6 +121,7 @@ pub const LetStatement = struct {
     pub fn deinit(self: *Self) void {
         if (self.value) |*value| {
             value.deinit();
+            self.value = null;
         }
     }
 
@@ -119,11 +136,18 @@ pub const LetStatement = struct {
     }
 
     pub fn clone(self: Self) Self {
+        var value: ?Expression = null;
+        if (self.value) |pvalue| value = pvalue.clone();
+
         return Self{
             .token = self.token,
             .ident = self.ident,
-            .value = self.value.?.clone() orelse null,
+            .value = value,
         };
+    }
+
+    pub fn cloneStatement(self: Self) Statement {
+        return Statement{ .let_statement = self.clone() };
     }
 };
 
@@ -158,16 +182,20 @@ pub const BlockStatement = struct {
     }
 
     pub fn clone(self: Self) Self {
-        var copy = Self{
-            .alloc = self.alloc,
-            .token = self.token,
-            .statements = ArrayList(Statement).initCapacity(self.alloc, self.statements.items.len),
-        };
+        var statements = ArrayList(Statement).initCapacity(self.alloc, self.statements.items.len) catch unreachable;
 
         for (self.statements.items) |stmt| {
-            copy.statements.append(stmt.clone());
+            statements.append(stmt.clone()) catch unreachable;
         }
 
-        return copy;
+        return Self{
+            .alloc = self.alloc,
+            .token = self.token,
+            .statements = statements,
+        };
+    }
+
+    pub fn cloneStatement(self: Self) Statement {
+        return Statement{ .block_statement = self.clone() };
     }
 };

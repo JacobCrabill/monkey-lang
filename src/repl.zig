@@ -42,13 +42,13 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
             try self.output.print("Welcome to Monkey!\n", .{});
             try self.output.print("  version: 0.0.1\n", .{});
 
-            //var buffer: [1048]u8 = undefined;
-
             var evaluator = Eval.Evaluator.init(self.alloc);
 
             while (true) {
+                // DEBUG
+                evaluator.printStack();
+
                 try self.output.print(">> ", .{});
-                //const input = (try self.nextLine(&buffer)).?;
                 const input = (try self.nextLine()).?;
                 var lex = Lexer.init(input);
                 var parser = Parser.init(self.alloc, &lex);
@@ -57,19 +57,18 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
                 // Parse and print the statement(s)
                 var prog: Program = try parser.parseProgram();
                 defer prog.deinit();
+                try prog.print(self.output);
 
                 const result = evaluator.evalProgram(prog);
                 try result.print(self.output);
                 try self.output.print("\n", .{});
+
+                // DEBUG
+                //evaluator.printStack();
             }
         }
 
         fn nextLine(self: *Self) !?[]const u8 {
-            //fn nextLine(self: *Self, buffer: []u8) !?[]const u8 {
-            //var line = (try self.input.readUntilDelimiterOrEof(
-            //    buffer,
-            //    '\n',
-            //)) orelse return null;
             var line = (try self.input.readUntilDelimiterOrEofAlloc(
                 self.alloc,
                 '\n',

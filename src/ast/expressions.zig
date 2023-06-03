@@ -27,6 +27,12 @@ pub const Expression = union(enum) {
         }
     }
 
+    pub fn clone(self: Self) Self {
+        return switch (self) {
+            inline else => |e| e.cloneExpression(),
+        };
+    }
+
     pub fn print(self: Self, stream: anytype) WriteError!void {
         switch (self) {
             inline else => |s| try s.print(stream),
@@ -36,12 +42,6 @@ pub const Expression = union(enum) {
     pub fn tokenLiteral(self: Self) []const u8 {
         return switch (self) {
             inline else => |e| e.token.literal,
-        };
-    }
-
-    pub fn clone(self: Self) Self {
-        return switch (self) {
-            inline else => |e| e.clone(),
         };
     }
 };
@@ -60,19 +60,20 @@ pub const Identifier = struct {
         };
     }
 
+    pub fn clone(self: Self) Self {
+        return self;
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .identifier = self.clone() };
+    }
+
     pub fn tokenLiteral(self: Self) []const u8 {
         return self.token.literal;
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s}", .{self.value});
-    }
-
-    pub fn clone(self: Self) Self {
-        return Self{
-            .token = self.token,
-            .value = undefined, // TODO
-        };
     }
 };
 
@@ -82,6 +83,14 @@ pub const IntegerLiteral = struct {
     value: i64,
 
     pub fn deinit(_: Self) void {}
+
+    pub fn clone(self: Self) Self {
+        return self;
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .integer_literal = self.clone() };
+    }
 
     pub fn init(token: Token) Self {
         //const value: i64 = std.fmt.parseInt(i64, token.literal, 10) orelse return null;
@@ -104,6 +113,14 @@ pub const BooleanLiteral = struct {
 
     pub fn deinit(_: Self) void {}
 
+    pub fn clone(self: Self) Self {
+        return self;
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .boolean_literal = self.clone() };
+    }
+
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s}", .{self.token.literal});
     }
@@ -124,7 +141,27 @@ pub const PrefixExpression = struct {
         if (self.right) |*pright| {
             pright.*.deinit();
             self.alloc.destroy(pright.*);
+            self.right = null;
         }
+    }
+
+    pub fn clone(self: Self) Self {
+        var right: ?*Expression = null;
+        if (self.right) |pright| {
+            right = self.alloc.create(Expression) catch unreachable;
+            right.?.* = pright.clone();
+        }
+
+        return Self{
+            .alloc = self.alloc,
+            .token = self.token,
+            .operator = self.operator,
+            .right = right,
+        };
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .prefix_expr = self.clone() };
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
@@ -158,11 +195,38 @@ pub const InfixExpression = struct {
         if (self.left) |*pleft| {
             pleft.*.deinit();
             self.alloc.destroy(pleft.*);
+            self.left = null;
         }
         if (self.right) |*pright| {
             pright.*.deinit();
             self.alloc.destroy(pright.*);
+            self.right = null;
         }
+    }
+
+    pub fn clone(self: Self) Self {
+        var left: ?*Expression = null;
+        var right: ?*Expression = null;
+        if (self.left) |pleft| {
+            left = self.alloc.create(Expression) catch unreachable;
+            left.?.* = pleft.clone();
+        }
+        if (self.right) |pright| {
+            right = self.alloc.create(Expression) catch unreachable;
+            right.?.* = pright.clone();
+        }
+
+        return Self{
+            .alloc = self.alloc,
+            .token = self.token,
+            .left = left,
+            .right = right,
+            .operator = self.operator,
+        };
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .infix_expr = self.clone() };
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
@@ -189,8 +253,8 @@ pub const InfixExpression = struct {
 
 pub const IfExpression = struct {
     const Self = @This();
-    token: Token,
     alloc: Allocator,
+    token: Token,
     condition: ?*Expression,
     consequence: ?*BlockStatement,
     alternative: ?*BlockStatement,
@@ -199,15 +263,49 @@ pub const IfExpression = struct {
         if (self.condition) |*pcond| {
             pcond.*.deinit();
             self.alloc.destroy(pcond.*);
+            self.condition = null;
         }
         if (self.consequence) |*pcons| {
             pcons.*.deinit();
             self.alloc.destroy(pcons.*);
+            self.consequence = null;
         }
         if (self.alternative) |*palt| {
             palt.*.deinit();
             self.alloc.destroy(palt.*);
+            self.alternative = null;
         }
+    }
+
+    pub fn clone(self: Self) Self {
+        var cond: ?*Expression = null;
+        var cons: ?*BlockStatement = null;
+        var alt: ?*BlockStatement = null;
+
+        if (self.condition) |pcond| {
+            cond = self.alloc.create(Expression) catch unreachable;
+            cond.?.* = pcond.clone();
+        }
+        if (self.consequence) |pcons| {
+            cons = self.alloc.create(BlockStatement) catch unreachable;
+            cons.?.* = pcons.clone();
+        }
+        if (self.alternative) |palt| {
+            alt = self.alloc.create(BlockStatement) catch unreachable;
+            alt.?.* = palt.clone();
+        }
+
+        return Self{
+            .alloc = self.alloc,
+            .token = self.token,
+            .condition = cond,
+            .consequence = cons,
+            .alternative = alt,
+        };
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .if_expr = self.clone() };
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
@@ -240,7 +338,27 @@ pub const FnExpression = struct {
         if (self.block) |*pblk| {
             pblk.*.deinit();
             self.alloc.destroy(pblk.*);
+            self.block = null;
         }
+    }
+
+    pub fn clone(self: Self) Self {
+        var block: ?*BlockStatement = null;
+        if (self.block) |pblock| {
+            block = self.alloc.create(BlockStatement) catch unreachable;
+            block.?.* = pblock.clone();
+        }
+
+        return Self{
+            .alloc = self.alloc,
+            .token = self.token,
+            .parameters = self.parameters.clone() catch unreachable,
+            .block = block,
+        };
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .fn_expr = self.clone() };
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
@@ -274,6 +392,30 @@ pub const CallExpression = struct {
             arg.deinit();
         }
         self.args.deinit();
+    }
+
+    pub fn clone(self: Self) Self {
+        var function: ?*Expression = null;
+        if (self.function) |pfunc| {
+            function = self.alloc.create(Expression) catch unreachable;
+            function.?.* = pfunc.clone();
+        }
+
+        var args = ArrayList(Expression).initCapacity(self.alloc, self.args.items.len) catch unreachable;
+        for (self.args.items) |arg| {
+            args.append(arg.clone()) catch unreachable;
+        }
+
+        return Self{
+            .alloc = self.alloc,
+            .token = self.token,
+            .function = function,
+            .args = args,
+        };
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .call_expr = self.clone() };
     }
 
     pub fn print(self: Self, stream: anytype) WriteError!void {

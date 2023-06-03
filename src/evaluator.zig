@@ -55,6 +55,11 @@ pub const Evaluator = struct {
         self.stack.reset();
     }
 
+    /// DEBUG
+    pub fn printStack(self: Self) void {
+        self.stack.print();
+    }
+
     pub fn evalProgram(self: *Self, prog: Program) Object {
         return self.evalStatements(prog.statements.items);
     }
@@ -215,7 +220,8 @@ pub const Evaluator = struct {
             return NullObject;
 
         // TODO: Create new Scope for the function, cloning the current scope
-        return .{ .function = obj.Function.init(self.alloc, fn_exp.parameters, fn_exp.block.?) };
+        var scope: obj.Scope = self.stack.getCopy();
+        return .{ .function = obj.Function.init(self.alloc, fn_exp.parameters, fn_exp.block.?, scope) };
     }
 
     fn evalCallExpression(self: *Self, call_expr: ast.CallExpression) Object {
