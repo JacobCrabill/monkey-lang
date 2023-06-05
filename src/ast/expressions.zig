@@ -394,6 +394,7 @@ pub const CallExpression = struct {
         self.args.deinit();
     }
 
+    /// Create a copy of all heap allocations
     pub fn clone(self: Self) Self {
         var function: ?*Expression = null;
         if (self.function) |pfunc| {

@@ -6,140 +6,12 @@ const ast = struct {
     usingnamespace @import("ast/expressions.zig");
 };
 
+const Scope = @import("scope.zig").Scope;
+
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Map = std.StringHashMap;
 const BufSet = std.BufSet;
-
-pub const Scope = struct {
-    const Self = @This();
-    alloc: Allocator,
-    map: Map(Object),
-    keys: BufSet,
-
-    pub fn init(alloc: Allocator) Self {
-        return .{
-            .alloc = alloc,
-            .map = Map(Object).init(alloc),
-            .keys = BufSet.init(alloc),
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        var iter = self.map.iterator();
-        while (iter.next()) |kv| {
-            self.alloc.free(kv.key_ptr.*);
-            kv.value_ptr.deinit();
-        }
-
-        self.map.deinit();
-        self.keys.deinit();
-    }
-
-    pub fn clone(self: Self) Self {
-        // TODO: copy key memory!!!
-        // This is only a shallow clone
-        return .{
-            .alloc = self.alloc,
-            .map = self.map.clone() catch unreachable,
-            .keys = self.keys.clone() catch unreachable,
-        };
-    }
-
-    pub fn get(self: Self, key: []const u8) ?Object {
-        return self.map.get(key);
-    }
-
-    /// Add an entry to the current Scope.
-    /// Given value is copied upon insertion.
-    pub fn set(self: *Self, key: []const u8, value: Object) void {
-        const owned_key = self.alloc.alloc(u8, key.len) catch unreachable;
-        @memcpy(owned_key, key);
-        self.map.put(owned_key, value.clone()) catch unreachable;
-        self.keys.insert(key) catch unreachable;
-    }
-
-    pub fn contains(self: Self, key: []const u8) bool {
-        return self.keys.contains(key);
-    }
-
-    /// DEBUG
-    pub fn print(self: Self) void {
-        var iter = self.keys.iterator();
-        while (iter.next()) |pkey| {
-            std.debug.print("{s}\n", .{pkey.*});
-        }
-    }
-};
-
-pub const ScopeStack = struct {
-    const Self = @This();
-    alloc: Allocator,
-    stack: ArrayList(Scope),
-    idx: usize,
-
-    /// Create a new instance with a single empty Scope
-    pub fn init(alloc: Allocator) Self {
-        var scope = Self{
-            .alloc = alloc,
-            .stack = ArrayList(Scope).init(alloc),
-            .idx = 0,
-        };
-        scope.pushNew();
-        return scope;
-    }
-
-    /// Clear and free all scopes
-    pub fn deinit(self: *Self) void {
-        for (self.stack.items) |*stack| {
-            stack.deinit();
-        }
-        self.stack.deinit();
-        self.idx = 0;
-    }
-
-    /// Clear all existing scopes, and create a single new empty scope
-    pub fn reset(self: *Self) void {
-        for (self.stack.items) |*stack| {
-            stack.deinit();
-        }
-        self.stack.clearAndFree();
-        self.pushNew();
-    }
-
-    /// Instantiate and push a new (empty) Scope to our stack
-    pub fn pushNew(self: *Self) void {
-        self.stack.append(Scope.init(self.alloc)) catch unreachable;
-        self.idx = self.stack.items.len - 1;
-    }
-
-    /// Pop the most recent Scope off of the stack
-    pub fn pop(self: *Self) Scope {
-        self.idx -= 1;
-        return self.stack.pop();
-    }
-    pub fn getCopy(self: *Self) Scope {
-        return self.stack.items[self.idx].clone();
-    }
-
-    /// Get a value from the latest scope
-    pub fn get(self: *Self, key: []const u8) ?Object {
-        return self.stack.items[self.idx].get(key);
-    }
-
-    /// Put a value into the latest scope
-    pub fn set(self: *Self, key: []const u8, value: Object) void {
-        self.stack.items[self.idx].set(key, value);
-    }
-
-    /// DEBUG
-    pub fn print(self: Self) void {
-        for (self.stack.items, 0..) |scope, i| {
-            std.debug.print("Scope {d}: ", .{i});
-            scope.print();
-        }
-    }
-};
 
 pub const ObjectType = enum(u8) {
     none,
@@ -167,8 +39,10 @@ pub const Object = union(ObjectType) {
         }
     }
 
+    /// Free any heap allocations
     pub fn deinit(self: *Self) void {
         switch (self.*) {
+            .error_msg => |*e| e.deinit(),
             .function => |*f| f.deinit(),
             inline else => {},
         }
@@ -234,7 +108,19 @@ pub const Function = struct {
 
 pub const ErrorMessage = struct {
     const Self = @This();
+    alloc: Allocator,
     message: []const u8,
+
+    pub fn init(alloc: Allocator, comptime fmt: []const u8, args: anytype) Self {
+        return .{
+            .alloc = alloc,
+            .message = std.fmt.allocPrint(alloc, fmt, args) catch unreachable,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.alloc.free(self.message);
+    }
 };
 
 pub fn makeInteger(value: i64) Object {

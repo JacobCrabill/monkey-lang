@@ -40,14 +40,11 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
         // Run the REPL
         pub fn start(self: *Self) !void {
             try self.output.print("Welcome to Monkey!\n", .{});
-            try self.output.print("  version: 0.0.1\n", .{});
+            try self.output.print("  version: 0.1.0\n", .{});
 
             var evaluator = Eval.Evaluator.init(self.alloc);
 
             while (true) {
-                // DEBUG
-                evaluator.printStack();
-
                 try self.output.print(">> ", .{});
                 const input = (try self.nextLine()).?;
                 var lex = Lexer.init(input);
@@ -57,14 +54,10 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
                 // Parse and print the statement(s)
                 var prog: Program = try parser.parseProgram();
                 defer prog.deinit();
-                try prog.print(self.output);
 
                 const result = evaluator.evalProgram(prog);
                 try result.print(self.output);
                 try self.output.print("\n", .{});
-
-                // DEBUG
-                //evaluator.printStack();
             }
         }
 

@@ -10,6 +10,7 @@ const obj = @import("object.zig");
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const TokenType = @import("tokens.zig").TokenType;
+const Scope = @import("scope.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -19,39 +20,28 @@ const Statement = ast.Statement;
 const Object = obj.Object;
 const ObjectType = obj.ObjectType;
 const NullObject = obj.NullObject;
-const ScopeStack = obj.ScopeStack;
+const ScopeStack = Scope.ScopeStack;
 
 pub const Evaluator = struct {
     const Self = @This();
     alloc: Allocator,
     is_return_value: bool,
-    errors: ArrayList([]const u8), // heap-allocated error messages
     stack: ScopeStack,
 
     pub fn init(alloc: Allocator) Self {
         return .{
             .alloc = alloc,
             .is_return_value = false,
-            .errors = ArrayList([]const u8).init(alloc),
             .stack = ScopeStack.init(alloc),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.errors.items) |err| {
-            self.alloc.free(err);
-        }
-        self.errors.deinit();
         self.stack.deinit();
     }
 
     pub fn reset(self: *Self) void {
         self.is_return_value = false;
-
-        for (self.errors.items) |err| {
-            self.alloc.free(err);
-        }
-        self.errors.clearAndFree();
         self.stack.reset();
     }
 
@@ -65,6 +55,9 @@ pub const Evaluator = struct {
     }
 
     pub fn evalStatements(self: *Self, statements: []Statement) Object {
+        if (statements.len == 0)
+            return NullObject;
+
         var results = ArrayList(Object).init(self.alloc);
         defer {
             for (results.items) |*item| item.deinit();
@@ -90,6 +83,14 @@ pub const Evaluator = struct {
             .return_statement => |rets| self.evalReturnStatement(rets),
             .let_statement => |lets| self.evalLetStatement(lets),
         };
+    }
+
+    pub fn evalExpressions(self: *Self, expressions: []Expression) ArrayList(Object) {
+        var results = ArrayList(Object).init(self.alloc);
+        for (expressions) |exp| {
+            results.append(self.evalExpression(exp)) catch unreachable;
+        }
+        return results;
     }
 
     pub fn evalExpression(self: *Self, expression: Expression) Object {
@@ -224,14 +225,49 @@ pub const Evaluator = struct {
         if (fn_exp.block == null)
             return NullObject;
 
-        // TODO: Create new Scope for the function, cloning the current scope
-        var scope: obj.Scope = self.stack.getCopy();
+        var scope: Scope.Scope = self.stack.getCopy();
         return .{ .function = obj.Function.init(self.alloc, fn_exp.parameters, fn_exp.block.?, scope) };
     }
 
     fn evalCallExpression(self: *Self, call_expr: ast.CallExpression) Object {
-        _ = call_expr;
-        return self.makeError("Calls not implemented yet!", .{});
+        if (call_expr.function == null)
+            return self.makeError("Empty function in call expression", .{});
+
+        var args: ArrayList(Object) = self.evalExpressions(call_expr.args.items);
+        // TODO: Check for Error object
+        defer {
+            for (args.items) |*arg| arg.deinit();
+            args.deinit();
+        }
+
+        return self.applyFunction(call_expr.function.?.*, args.items);
+    }
+
+    fn applyFunction(self: *Self, fn_expression: Expression, args: []Object) Object {
+
+        // Get the (assumed) function expression
+        var fn_obj: Object = self.evalExpression(fn_expression);
+        if (fn_obj != ObjectType.function)
+            return self.makeError("Cannot apply function to expression: {any}", .{fn_expression});
+
+        var function: obj.Function = fn_obj.function;
+
+        // Setup the function's scope
+        self.stack.push(function.scope);
+        defer _ = self.stack.pop();
+
+        // Setup arguments
+        const nargs: usize = function.parameters.items.len;
+        if (nargs != args.len) {
+            return self.makeError("Expected {d} arguments, got {d}", .{ nargs, args.len });
+        }
+
+        for (function.parameters.items, args) |ident, arg| {
+            self.stack.set(ident.value, arg);
+        }
+
+        // Evaluate the function
+        return self.evalStatements(function.body.statements.items);
     }
 
     fn evalMinusPrefix(self: *Self, object: Object) Object {
@@ -278,11 +314,7 @@ pub const Evaluator = struct {
     }
 
     fn makeError(self: *Self, comptime fmt: []const u8, args: anytype) Object {
-        const msg = std.fmt.allocPrint(self.alloc, fmt, args) catch unreachable;
-        self.errors.append(msg) catch unreachable;
-        return .{
-            .error_msg = obj.ErrorMessage{ .message = msg },
-        };
+        return .{ .error_msg = obj.ErrorMessage.init(self.alloc, fmt, args) };
     }
 };
 
