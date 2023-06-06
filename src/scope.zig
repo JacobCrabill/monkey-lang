@@ -61,10 +61,15 @@ pub const Scope = struct {
     /// Add an entry to the current Scope.
     /// Given value is copied upon insertion.
     pub fn set(self: *Self, key: []const u8, value: Object) void {
-        const owned_key = self.alloc.alloc(u8, key.len) catch unreachable;
-        @memcpy(owned_key, key);
-        self.map.put(owned_key, value.clone()) catch unreachable;
-        self.keys.insert(key) catch unreachable;
+        if (self.contains(key)) {
+            self.map.put(key, value.clone()) catch unreachable;
+        } else {
+            const owned_key: []u8 = self.alloc.alloc(u8, key.len) catch unreachable;
+            @memcpy(owned_key, key);
+            //const owned_key: []u8 = self.alloc.dupe(u8, key) catch unreachable;
+            self.map.put(owned_key, value.clone()) catch unreachable;
+            self.keys.insert(owned_key) catch unreachable;
+        }
     }
 
     /// Check if the key exists in the map
@@ -76,7 +81,7 @@ pub const Scope = struct {
     pub fn print(self: Self) void {
         var iter = self.keys.iterator();
         while (iter.next()) |pkey| {
-            std.debug.print("{s}\n", .{pkey.*});
+            std.debug.print("{s}\n", .{pkey});
         }
     }
 };
@@ -133,6 +138,8 @@ pub const ScopeStack = struct {
         self.idx -= 1;
         return self.stack.pop();
     }
+
+    /// Return a copy of the top of the stack
     pub fn getCopy(self: *Self) Scope {
         return self.stack.items[self.idx].clone();
     }
@@ -157,8 +164,7 @@ pub const ScopeStack = struct {
 
     /// DEBUG
     pub fn print(self: Self) void {
-        for (self.stack.items, 0..) |scope, i| {
-            std.debug.print("Scope {d}: ", .{i});
+        for (self.stack.items) |scope| {
             scope.print();
         }
     }

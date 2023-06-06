@@ -59,10 +59,11 @@ pub const Evaluator = struct {
             return NullObject;
 
         var results = ArrayList(Object).init(self.alloc);
-        defer {
-            for (results.items) |*item| item.deinit();
-            results.deinit();
-        }
+        defer results.deinit();
+        //defer {
+        //    for (results.items) |*item| item.deinit();
+        //    results.deinit();
+        //}
 
         for (statements) |stmt| {
             var result = self.evalStatement(stmt);
@@ -73,7 +74,11 @@ pub const Evaluator = struct {
             results.append(result) catch unreachable;
         }
 
-        return results.pop();
+        //return results.pop();
+
+        var res = results.pop();
+        for (results.items) |*item| item.deinit();
+        return res;
     }
 
     pub fn evalStatement(self: *Self, statement: Statement) Object {
@@ -244,7 +249,6 @@ pub const Evaluator = struct {
     }
 
     fn applyFunction(self: *Self, fn_expression: Expression, args: []Object) Object {
-
         // Get the (assumed) function expression
         var fn_obj: Object = self.evalExpression(fn_expression);
         if (fn_obj != ObjectType.function)
@@ -254,7 +258,10 @@ pub const Evaluator = struct {
 
         // Setup the function's scope
         self.stack.push(function.scope);
-        defer _ = self.stack.pop();
+        defer {
+            var modified_scope = self.stack.pop();
+            modified_scope.deinit();
+        }
 
         // Setup arguments
         const nargs: usize = function.parameters.items.len;
@@ -415,6 +422,15 @@ test "eval functions" {
 
     const data = [_]TestData{
         .{ .input = "let add = fn(x,y) { return x + y; }; add(1,2);", .value = 3 },
+        .{
+            .input =
+            \\let add = fn(x,y) { return x + y; };
+            \\let addTwo = fn(x) { return add(x, 2); };
+            \\addTwo(9);
+            \\
+            ,
+            .value = 11,
+        },
     };
 
     for (data) |d| {

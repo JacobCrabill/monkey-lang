@@ -19,6 +19,7 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
         output: OutStream,
         max_input_size: usize = 65535,
         commands: ArrayList([]const u8),
+        should_exit: bool = false,
 
         // Create
         pub fn init(alloc: Allocator, input: InStream, output: OutStream) Self {
@@ -43,10 +44,16 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
             try self.output.print("  version: 0.1.0\n", .{});
 
             var evaluator = Eval.Evaluator.init(self.alloc);
+            defer evaluator.deinit();
 
-            while (true) {
+            while (!self.should_exit) {
                 try self.output.print(">> ", .{});
                 const input = (try self.nextLine()).?;
+
+                // Check for special commands handled by the REPL
+                if (self.handleInput(input))
+                    continue;
+
                 var lex = Lexer.init(input);
                 var parser = Parser.init(self.alloc, &lex);
                 defer parser.deinit();
@@ -55,8 +62,8 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
                 var prog: Program = try parser.parseProgram();
                 defer prog.deinit();
 
-                const result = evaluator.evalProgram(prog);
-                try result.print(self.output);
+                //const result = evaluator.evalProgram(prog);
+                //try result.print(self.output);
                 try self.output.print("\n", .{});
             }
         }
@@ -74,6 +81,14 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
             } else {
                 return line;
             }
+        }
+
+        fn handleInput(self: *Self, input: []const u8) bool {
+            if (std.mem.startsWith(u8, input, "exit") or std.mem.startsWith(u8, input, "quit")) {
+                self.should_exit = true;
+                return true;
+            }
+            return false;
         }
     };
 }

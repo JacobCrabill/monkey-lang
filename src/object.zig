@@ -87,7 +87,7 @@ pub const Function = struct {
     pub fn deinit(self: *Self) void {
         self.parameters.deinit();
         self.body.deinit();
-        self.scope.deinit();
+        // caller owns scope
     }
 
     pub fn clone(self: Self) Self {
