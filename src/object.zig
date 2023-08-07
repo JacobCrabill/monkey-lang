@@ -80,14 +80,14 @@ pub const Function = struct {
             .alloc = alloc,
             .parameters = parameters.clone() catch unreachable,
             .body = body.clone(),
-            .scope = scope,
+            .scope = scope.clone(),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.parameters.deinit();
         self.body.deinit();
-        // caller owns scope
+        self.scope.deinit();
     }
 
     pub fn clone(self: Self) Self {

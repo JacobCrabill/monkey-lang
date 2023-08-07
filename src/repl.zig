@@ -2,6 +2,7 @@ const std = @import("std");
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const Program = @import("ast.zig").Program;
+const Scope = @import("scope.zig").Scope;
 const Eval = @import("evaluator.zig");
 
 const Allocator = std.mem.Allocator;
@@ -43,12 +44,18 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
             try self.output.print("Welcome to Monkey!\n", .{});
             try self.output.print("  version: 0.1.0\n", .{});
 
+            var scope = Scope.init(self.alloc);
             var evaluator = Eval.Evaluator.init(self.alloc);
             defer evaluator.deinit();
 
+            var strings = ArrayList([]const u8).init(self.alloc);
+
             while (!self.should_exit) {
                 try self.output.print(">> ", .{});
-                const input = (try self.nextLine()).?;
+                const raw_input = (try self.nextLine()).?;
+                var input: []u8 = try self.alloc.alloc(u8, raw_input.len);
+                @memcpy(input, raw_input);
+                try strings.append(input);
 
                 // Check for special commands handled by the REPL
                 if (self.handleInput(input))
@@ -62,8 +69,9 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
                 var prog: Program = try parser.parseProgram();
                 defer prog.deinit();
 
-                //const result = evaluator.evalProgram(prog);
-                //try result.print(self.output);
+                const result = evaluator.evalProgram(prog, &scope);
+                evaluator.reset();
+                try result.print(self.output);
                 try self.output.print("\n", .{});
             }
         }

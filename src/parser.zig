@@ -253,12 +253,12 @@ pub const Parser = struct {
     // -------- Expressions --------
 
     fn parseExpression(self: *Self, precedence: Operators) ?ast.Expression {
-        const iprec: u8 = @enumToInt(precedence);
+        const iprec: u8 = @intFromEnum(precedence);
 
         // Try parsing the operator in the prefix position, and return the result
         var left: ast.Expression = self.parsePrefix(self.cur_token.kind) orelse return null;
 
-        while (!(self.curTokenIs(.SEMI) or self.curTokenIs(.EOF)) and iprec < @enumToInt(self.peekPrecedence())) {
+        while (!(self.curTokenIs(.SEMI) or self.curTokenIs(.EOF)) and iprec < @intFromEnum(self.peekPrecedence())) {
             if (isOperator(self.next_token.kind)) {
                 self.nextToken();
                 // Copy 'left' onto the heap; make the next InfixExpression the new 'left'
@@ -428,6 +428,7 @@ pub const Parser = struct {
             .parameters = ArrayList(ast.Identifier).init(self.alloc),
             .block = null,
         };
+        defer fnexp.deinit();
 
         if (!self.expectPeek(.LPAREN)) {
             return null;
@@ -442,13 +443,11 @@ pub const Parser = struct {
 
         const cur_token = self.cur_token;
         if (!self.expectPeek(.RPAREN)) {
-            fnexp.deinit();
             return null;
         }
         fnexp.parameters.append(ast.Identifier.init(cur_token)) catch unreachable;
 
         if (!self.expectPeek(.LBRACE)) {
-            fnexp.deinit();
             return null;
         }
 
@@ -456,11 +455,11 @@ pub const Parser = struct {
             fnexp.block = self.alloc.create(ast.BlockStatement) catch unreachable;
             fnexp.block.?.* = block;
         } else {
-            fnexp.deinit();
             return null;
         }
 
-        return ast.Expression{ .fn_expr = fnexp };
+        var new_fn = ast.Expression{ .fn_expr = fnexp.clone() };
+        return new_fn;
     }
 
     fn parseCallExpression(self: *Self, left: *ast.Expression) ?ast.Expression {

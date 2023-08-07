@@ -9,25 +9,6 @@ const WriteError = std.os.WriteError;
 const Statement = Statements.Statement;
 const Expression = Expressions.Statement;
 
-/// Representation of a single node in the AST
-pub const Node = union(enum) {
-    const Self = @This();
-    expression: Expression,
-    statement: Statement,
-
-    pub fn deinit(self: *Self) void {
-        switch (self) {
-            inline else => |*s| s.*.deinit(),
-        }
-    }
-
-    pub fn print(self: Self, stream: anytype) !void {
-        switch (self) {
-            inline else => |s| try s.print(stream),
-        }
-    }
-};
-
 /// The AST representation of a program
 pub const Program = struct {
     const Self = @This();
@@ -44,7 +25,7 @@ pub const Program = struct {
     pub fn deinit(self: *Self) void {
         for (self.statements.items) |*stmt| {
             switch (stmt.*) {
-                inline else => |*es| es.deinit(),
+                inline else => |*s| s.deinit(),
             }
         }
         self.statements.deinit();

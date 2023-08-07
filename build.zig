@@ -19,6 +19,7 @@ pub fn build(b: *std.build.Builder) void {
         .optimize = optimize,
         .target = target,
     });
+    exe.linkLibC();
     b.installArtifact(exe);
 
     // Configure how the main executable should be run
