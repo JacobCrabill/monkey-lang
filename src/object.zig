@@ -35,7 +35,7 @@ pub const Object = union(ObjectType) {
             .integer => |i| try stream.print("{d}", .{i.value}),
             .boolean => |b| try stream.print("{any}", .{b.value}),
             .function => |f| try f.print(stream),
-            .error_msg => |e| try stream.print("ERROR: {s}", .{e.message}),
+            .error_msg => |e| try e.print(stream),
         }
     }
 
@@ -58,7 +58,12 @@ pub const Object = union(ObjectType) {
     }
 };
 
-pub const Null = struct {};
+pub const Null = struct {
+    pub fn print(self: Null, stream: anytype) !void {
+        _ = self;
+        try stream.print("null", .{});
+    }
+};
 
 pub const Integer = struct {
     value: i64,
@@ -109,17 +114,32 @@ pub const Function = struct {
 pub const ErrorMessage = struct {
     const Self = @This();
     alloc: Allocator,
-    message: []const u8,
+    buf: [256]u8 = undefined,
+    len: usize,
 
     pub fn init(alloc: Allocator, comptime fmt: []const u8, args: anytype) Self {
-        return .{
-            .alloc = alloc,
-            .message = std.fmt.allocPrint(alloc, fmt, args) catch unreachable,
-        };
+        var error_msg = ErrorMessage{ .alloc = alloc, .len = 0 };
+        const msg = std.fmt.bufPrint(&error_msg.buf, fmt, args) catch unreachable;
+        error_msg.len = msg.len;
+        return error_msg;
+    }
+
+    pub fn message(self: Self) []const u8 {
+        return self.buf[0 .. self.len + 1];
+    }
+
+    pub fn clone(self: Self) Self {
+        var error_msg = ErrorMessage.init{ .alloc = self.alloc, .len = self.len };
+        @memcpy(error_msg.buf, self.buf);
+        return error_msg;
+    }
+
+    pub fn print(self: Self, stream: anytype) !void {
+        try stream.print("{s}\n", .{self.buf[0..self.len]});
     }
 
     pub fn deinit(self: *Self) void {
-        self.alloc.free(self.message);
+        self.* = undefined;
     }
 };
 

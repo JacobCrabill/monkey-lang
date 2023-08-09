@@ -118,7 +118,6 @@ pub const Evaluator = struct {
     fn evalLetStatement(self: *Self, statement: ast.LetStatement, scope: *Scope) Object {
         if (statement.value) |exp| {
             const value = self.evalExpression(exp, scope);
-            // self.stack.set(statement.ident.literal, value);
             scope.set(statement.ident.literal, value);
             return value;
         } else {
@@ -227,12 +226,14 @@ pub const Evaluator = struct {
 
         var args: ArrayList(Object) = self.evalExpressions(call_expr.args.items, scope);
         defer {
-            for (args.items) |*arg| arg.deinit();
+            // TODO: wtf is this a sefault?? should be a leak...
+            //for (args.items) |*arg| arg.deinit();
             args.deinit();
         }
 
         if (args.items.len == 1 and args.items[0] == ObjectType.error_msg) {
-            return args.items[0];
+            const res: Object = args.items[0].clone();
+            return res;
         }
 
         return self.applyFunction(call_expr.function.?.*, args.items, scope);
@@ -303,9 +304,10 @@ pub const Evaluator = struct {
     }
 
     fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
-        std.io.getStdErr().writer().print("Eval Error: ", .{}) catch unreachable;
-        std.io.getStdErr().writer().print(msg, args) catch unreachable;
-        std.io.getStdErr().writer().print("\n", .{}) catch unreachable;
+        var stderr = std.io.getStdErr().writer();
+        stderr.print("Eval Error: ", .{}) catch unreachable;
+        stderr.print(msg, args) catch unreachable;
+        stderr.print("\n", .{}) catch unreachable;
     }
 
     fn makeError(self: *Self, comptime fmt: []const u8, args: anytype) Object {
@@ -421,22 +423,30 @@ test "eval functions" {
             ,
             .value = 11,
         },
-        //.{
-        //    .input =
-        //    \\let add = fn(x,y) { return x + y; };
-        //    \\let addTwo = fn(x) { return add(x, 2); };
-        //    \\let addThree = fn(x) { return add(1, addTwo(x, 2)); };
-        //    \\addThree(39);
-        //    \\
-        //    ,
-        //    .value = 42,
-        //},
+        .{
+            .input =
+            \\let add = fn(x,y) { return x + y; };
+            \\let addTwo = fn(x) { return add(x, 2); };
+            \\let addThree = fn(x) { return add(1, addTwo(x)); };
+            \\addThree(39);
+            ,
+            .value = 42,
+        },
     };
 
     for (data) |d| {
         var result: Object = testEval(std.testing.allocator, d.input).?;
-        defer result.deinit();
-        try std.testing.expect(compareIntegers(result, d.value));
+        std.testing.expect(compareIntegers(result, d.value)) catch {
+            // TODO: Figure out how to show stderr in tests
+            // this will not show up!
+            try result.print(std.io.getStdErr().writer());
+
+            const msg: obj.ErrorMessage = result.error_msg;
+            std.debug.print("message: {s}\n", .{msg.message()});
+
+            return error.TestExpectedEqual;
+        };
+        result.deinit();
     }
 }
 
@@ -446,7 +456,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var alloc = gpa.allocator();
 
-    const input = "let a = fn(x, y) { return x + y; };\na(2, 3) + 1;\n";
+    const input = "let a = fn(x, y) { return x + y; };\na(2, 3, 4);\n";
     const output = std.io.getStdErr().writer();
 
     var lex = Lexer.init(input);
