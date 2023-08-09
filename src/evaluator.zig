@@ -407,6 +407,7 @@ test "eval booleans" {
 }
 
 test "eval functions" {
+    std.testing.log_level = std.log.Level.debug;
     const TestData = struct {
         input: []const u8,
         value: i64,
@@ -437,15 +438,12 @@ test "eval functions" {
     for (data) |d| {
         var result: Object = testEval(std.testing.allocator, d.input).?;
         std.testing.expect(compareIntegers(result, d.value)) catch {
-            // TODO: Figure out how to show stderr in tests
-            // this will not show up!
+            // NOTE: stderr and stdout are only available if doing 'zig test src/evaluator.zig'
+            //       rather than 'zig build test-evaluator'
             try result.print(std.io.getStdErr().writer());
-
-            const msg: obj.ErrorMessage = result.error_msg;
-            std.debug.print("message: {s}\n", .{msg.message()});
-
             return error.TestExpectedEqual;
         };
+        try result.print(std.io.getStdErr().writer());
         result.deinit();
     }
 }

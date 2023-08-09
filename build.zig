@@ -34,6 +34,10 @@ pub fn build(b: *std.build.Builder) void {
     run_step.dependOn(&app.step);
 
     // Add unit tests
+    // NOTE:
+    //   Tests run this way (through 'zig build ...') CANNOT use stdout
+    //   They also have highly limited use of stderr
+    //   If you want to see debug output from a test, use 'zig test <file.zig>' directly!
     addTest(b, "test-lexer", "Run Lexer unit tests", "src/lexer.zig", optimize);
     addTest(b, "test-parser", "Run parser unit tests", "src/parser.zig", optimize);
     addTest(b, "test-evaluator", "Run evaluator unit tests", "src/evaluator.zig", optimize);
