@@ -15,6 +15,7 @@ pub const Expression = union(enum) {
     identifier: Identifier,
     integer_literal: IntegerLiteral,
     boolean_literal: BooleanLiteral,
+    string_literal: StringLiteral,
     prefix_expr: PrefixExpression,
     infix_expr: InfixExpression,
     if_expr: IfExpression,
@@ -123,6 +124,33 @@ pub const BooleanLiteral = struct {
 
     pub fn print(self: Self, stream: anytype) WriteError!void {
         try stream.print("{s}", .{self.token.literal});
+    }
+};
+
+pub const StringLiteral = struct {
+    const Self = @This();
+    token: Token,
+    value: []const u8,
+
+    pub fn init(token: Token) Self {
+        return .{
+            .token = token,
+            .value = token.literal,
+        };
+    }
+
+    pub fn deinit(_: Self) void {}
+
+    pub fn clone(self: Self) Self {
+        return self;
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .string_literal = self.clone() };
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("{s}", .{self.value});
     }
 };
 

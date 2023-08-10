@@ -78,6 +78,10 @@ pub const Lexer = struct {
             '>' => tok.kind = .GT,
             0 => tok.kind = .EOF,
             ' ' => {},
+            '"' => {
+                tok.kind = .STRING;
+                tok.literal = self.readString();
+            },
             else => {
                 if (isLetter(self.ch)) {
                     tok.literal = self.readIdentifier();
@@ -115,6 +119,15 @@ pub const Lexer = struct {
             self.readChar();
         }
         return self.input[cursor..self.cursor];
+    }
+
+    fn readString(self: *Self) []const u8 {
+        self.readChar();
+        const start = self.cursor;
+        while (!(self.ch == '"' or self.ch == 0)) {
+            self.readChar();
+        }
+        return self.input[start..self.cursor];
     }
 
     fn currentString(self: Self) []const u8 {
@@ -186,7 +199,8 @@ test "keywords and identifiers" {
         \\
         \\10 == 10;
         \\10 != 9;
-        \\
+        \\"foobar"
+        \\"foo bar"
     ;
 
     const expected_tokens = [_]Token{
@@ -263,6 +277,8 @@ test "keywords and identifiers" {
         Token.init(.NEQ, "!="),
         Token.init(.INT, "9"),
         Token.init(.SEMI, ";"),
+        Token.init(.STRING, "foobar"),
+        Token.init(.STRING, "foo bar"),
 
         Token.init(.EOF, "0"),
     };

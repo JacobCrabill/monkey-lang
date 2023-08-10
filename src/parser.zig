@@ -284,6 +284,7 @@ pub const Parser = struct {
         return switch (kind) {
             .IDENT => self.parseIdentifier(),
             .INT => self.parseIntegerLiteral(),
+            .STRING => self.parseStringLiteral(),
             .BANG => self.parsePrefixExpression(),
             .MINUS => self.parsePrefixExpression(),
             .TRUE => self.parseBoolean(),
@@ -531,6 +532,12 @@ pub const Parser = struct {
                 .token = self.cur_token,
                 .value = self.curTokenIs(.TRUE),
             },
+        };
+    }
+
+    fn parseStringLiteral(self: *Self) ast.Expression {
+        return ast.Expression{
+            .string_literal = ast.StringLiteral.init(self.cur_token),
         };
     }
 };
@@ -829,6 +836,16 @@ test "boolean literals" {
         .{ .input = "false;", .output = "false;\n" },
         .{ .input = "let foobar = true;", .output = "let foobar = true;\n" },
         .{ .input = "let barfoo = false;", .output = "let barfoo = false;\n" },
+    };
+
+    try testProgram(&test_data, 256);
+}
+
+test "string literals" {
+    const test_data = [_]TestData{
+        .{ .input = "\"Hello, World!\";", .output = "Hello, World!;\n" },
+        .{ .input = "\"This is not a string\";", .output = "This is not a string;\n" },
+        .{ .input = "\"jk\";", .output = "jk;\n" },
     };
 
     try testProgram(&test_data, 256);

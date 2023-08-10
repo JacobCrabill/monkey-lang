@@ -17,6 +17,7 @@ pub const ObjectType = enum(u8) {
     none,
     integer,
     boolean,
+    string,
     function,
     error_msg,
 };
@@ -26,6 +27,7 @@ pub const Object = union(ObjectType) {
     none: Null,
     integer: Integer,
     boolean: Boolean,
+    string: String,
     function: Function,
     error_msg: ErrorMessage,
 
@@ -34,6 +36,7 @@ pub const Object = union(ObjectType) {
             .none => try stream.print("null", .{}),
             .integer => |i| try stream.print("{d}", .{i.value}),
             .boolean => |b| try stream.print("{any}", .{b.value}),
+            .string => |s| try stream.print("{s}", .{s.value}),
             .function => |f| try f.print(stream),
             .error_msg => |e| try e.print(stream),
         }
@@ -53,20 +56,20 @@ pub const Object = union(ObjectType) {
     pub fn clone(self: Self) Self {
         return switch (self) {
             .function => |f| Self{ .function = f.clone() },
+            .error_msg => |e| Self{ .error_msg = e.clone() },
             else => self,
         };
     }
 };
 
-pub const Null = struct {
-    pub fn print(self: Null, stream: anytype) !void {
-        _ = self;
-        try stream.print("null", .{});
-    }
-};
+pub const Null = struct {};
 
 pub const Integer = struct {
     value: i64,
+};
+
+pub const String = struct {
+    value: []const u8,
 };
 
 pub const Boolean = struct {
@@ -129,8 +132,10 @@ pub const ErrorMessage = struct {
     }
 
     pub fn clone(self: Self) Self {
-        var error_msg = ErrorMessage.init{ .alloc = self.alloc, .len = self.len };
-        @memcpy(error_msg.buf, self.buf);
+        // TODO: Reconsider the ErrorMessage - my previous issue turned out
+        // that I didn't call this from the base Object.clone() fn
+        var error_msg = ErrorMessage{ .alloc = self.alloc, .len = self.len };
+        @memcpy(&error_msg.buf, &self.buf);
         return error_msg;
     }
 
@@ -152,6 +157,12 @@ pub fn makeInteger(value: i64) Object {
 pub fn makeBoolean(value: bool) Object {
     return Object{
         .boolean = Boolean{ .value = value },
+    };
+}
+
+pub fn makeString(value: []const u8) Object {
+    return Object{
+        .string = String{ .value = value },
     };
 }
 

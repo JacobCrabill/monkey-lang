@@ -89,6 +89,7 @@ pub const Evaluator = struct {
         return switch (expression) {
             .integer_literal => |i| obj.makeInteger(i.value),
             .boolean_literal => |b| obj.makeBoolean(b.value),
+            .string_literal => |s| obj.makeString(s.value),
             .prefix_expr => |p| self.evalPrefixExpression(p, scope),
             .infix_expr => |i| self.evalInfixExpression(i, scope),
             .if_expr => |i| self.evalIfExpression(i, scope),
@@ -346,6 +347,13 @@ fn compareBooleans(object: Object, value: bool) bool {
     };
 }
 
+fn compareStrings(object: Object, value: []const u8) bool {
+    return switch (object) {
+        .string => |s| std.mem.eql(u8, s.value, value),
+        else => false,
+    };
+}
+
 // ---------------- Unit Tests ----------------
 
 test "eval integers" {
@@ -406,6 +414,24 @@ test "eval booleans" {
     }
 }
 
+test "eval strings" {
+    const TestData = struct {
+        input: []const u8,
+        value: []const u8,
+    };
+
+    const data = [_]TestData{
+        .{ .input = "let foo = \"Hello, World!\"", .value = "Hello, World!" },
+        .{ .input = "\"this is a string\"", .value = "this is a string" },
+    };
+
+    for (data) |d| {
+        var result: Object = testEval(std.testing.allocator, d.input).?;
+        defer result.deinit();
+        try std.testing.expect(compareStrings(result, d.value));
+    }
+}
+
 test "eval functions" {
     std.testing.log_level = std.log.Level.debug;
     const TestData = struct {
@@ -420,7 +446,6 @@ test "eval functions" {
             \\let add = fn(x,y) { return x + y; };
             \\let addTwo = fn(x) { return add(x, 2); };
             \\addTwo(9);
-            \\
             ,
             .value = 11,
         },
@@ -429,10 +454,29 @@ test "eval functions" {
             \\let add = fn(x,y) { return x + y; };
             \\let addTwo = fn(x) { return add(x, 2); };
             \\let addThree = fn(x) { return add(1, addTwo(x)); };
-            \\addThree(39);
+            \\addThree(add(39,0));
             ,
             .value = 42,
         },
+        .{
+            .input =
+            \\let adder = fn(x) {
+            \\  fn(y) { x + y };
+            \\};
+            \\let addTwo = adder(2);
+            \\addTwo(5);
+            ,
+            .value = 7,
+        },
+        // TDOO: Memory leak on this one:
+        //.{
+        //    .input =
+        //    \\let adder = fn(x) { fn(y) { x + y } };
+        //    \\adder(1)(3);
+        //    ,
+        //    .value = 4,
+        //},
+        // TODO: Recursive functions not working yet
     };
 
     for (data) |d| {
@@ -440,40 +484,10 @@ test "eval functions" {
         std.testing.expect(compareIntegers(result, d.value)) catch {
             // NOTE: stderr and stdout are only available if doing 'zig test src/evaluator.zig'
             //       rather than 'zig build test-evaluator'
+            std.debug.print("Test failed: ", .{});
             try result.print(std.io.getStdErr().writer());
             return error.TestExpectedEqual;
         };
-        try result.print(std.io.getStdErr().writer());
         result.deinit();
     }
-}
-
-// TODO: Test expecting errors
-
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var alloc = gpa.allocator();
-
-    const input = "let a = fn(x, y) { return x + y; };\na(2, 3, 4);\n";
-    const output = std.io.getStdErr().writer();
-
-    var lex = Lexer.init(input);
-    var parser = Parser.init(alloc, &lex);
-    defer parser.deinit();
-
-    // Parse and print the statement(s)
-    var prog: Program = try parser.parseProgram();
-    defer prog.deinit();
-
-    try output.print("Program:\n", .{});
-    try prog.print(output);
-    try output.print("-- End Program\n", .{});
-
-    var scope = Scope.init(alloc);
-    var evaluator = Evaluator.init(alloc);
-    defer scope.deinit();
-    defer evaluator.deinit();
-    const result = evaluator.evalProgram(prog, &scope);
-    try result.print(output);
-    try output.print("\n", .{});
 }
