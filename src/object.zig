@@ -47,6 +47,7 @@ pub const Object = union(ObjectType) {
         switch (self.*) {
             .error_msg => |*e| e.deinit(),
             .function => |*f| f.deinit(),
+            .string => |*s| s.deinit(),
             inline else => {},
         }
     }
@@ -70,6 +71,13 @@ pub const Integer = struct {
 
 pub const String = struct {
     value: []const u8,
+    alloc: ?Allocator = null,
+
+    pub fn deinit(self: *String) void {
+        if (self.alloc) |alloc| {
+            alloc.free(self.value);
+        }
+    }
 };
 
 pub const Boolean = struct {
@@ -171,3 +179,11 @@ pub fn makeNull() Object {
 }
 
 pub const NullObject = Object{ .none = Null{} };
+
+pub fn concatStrings(alloc: Allocator, left: []const u8, right: []const u8) Object {
+    const args: []const []const u8 = &.{ left, right };
+    return Object{ .string = String{
+        .alloc = alloc,
+        .value = std.mem.concat(alloc, u8, args) catch unreachable,
+    } };
+}

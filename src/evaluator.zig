@@ -128,10 +128,11 @@ pub const Evaluator = struct {
 
     fn evalPrefixExpression(self: *Self, prefix_expression: ast.PrefixExpression, scope: *Scope) Object {
         if (prefix_expression.right) |right| {
-            const result: Object = self.evalExpression(right.*, scope);
+            var result: Object = self.evalExpression(right.*, scope);
+            defer result.deinit();
 
             if (result == ObjectType.error_msg)
-                return result;
+                return result.clone();
 
             return switch (prefix_expression.token.kind) {
                 .MINUS => self.evalMinusPrefix(result, scope),
@@ -149,11 +150,13 @@ pub const Evaluator = struct {
             return NullObject;
         }
 
-        const left: Object = self.evalExpression(infix_expression.left.?.*, scope);
+        var left: Object = self.evalExpression(infix_expression.left.?.*, scope);
+        defer left.deinit();
         if (left == ObjectType.error_msg)
             return left;
 
-        const right: Object = self.evalExpression(infix_expression.right.?.*, scope);
+        var right: Object = self.evalExpression(infix_expression.right.?.*, scope);
+        defer right.deinit();
         if (right == ObjectType.error_msg)
             return right;
 
@@ -168,6 +171,7 @@ pub const Evaluator = struct {
         return switch (left) {
             .integer => self.evalIntegerInfix(left, right, infix_expression.token.kind, scope),
             .boolean => self.evalBooleanInfix(left, right, infix_expression.token.kind, scope),
+            .string => self.evalStringInfix(left, right, infix_expression.token.kind, scope),
             else => self.makeError("Invalid expression: '{s} {s} {s}'", .{
                 infix_expression.left.?.*.tokenLiteral(),
                 infix_expression.operator,
@@ -185,10 +189,11 @@ pub const Evaluator = struct {
         if (if_expression.consequence == null and if_expression.alternative == null)
             return NullObject;
 
-        const condition: Object = self.evalExpression(if_expression.condition.?.*, scope);
+        var condition: Object = self.evalExpression(if_expression.condition.?.*, scope);
+        defer condition.deinit();
 
         if (condition == ObjectType.error_msg)
-            return condition;
+            return condition.clone();
 
         if (condition != ObjectType.boolean)
             return NullObject;
@@ -243,6 +248,8 @@ pub const Evaluator = struct {
     fn applyFunction(self: *Self, fn_expression: Expression, args: []Object, scope: *Scope) Object {
         // Get the (assumed) function expression
         var fn_obj: Object = self.evalExpression(fn_expression, scope);
+        //defer fn_obj.deinit(); // TODO: double-free here
+
         if (fn_obj != ObjectType.function)
             return self.makeError("Cannot apply function to expression: {any}", .{fn_expression});
 
@@ -304,6 +311,13 @@ pub const Evaluator = struct {
         };
     }
 
+    fn evalStringInfix(self: *Self, left: Object, right: Object, operator: TokenType, _: *Scope) Object {
+        return switch (operator) {
+            .PLUS => obj.concatStrings(self.alloc, left.string.value, right.string.value),
+            else => self.makeError("Invalid operator {any} for StringInfix", .{operator}),
+        };
+    }
+
     fn makeEvalError(_: Self, comptime msg: []const u8, args: anytype) void {
         var stderr = std.io.getStdErr().writer();
         stderr.print("Eval Error: ", .{}) catch unreachable;
@@ -343,13 +357,6 @@ fn compareIntegers(object: Object, value: i64) bool {
 fn compareBooleans(object: Object, value: bool) bool {
     return switch (object) {
         .boolean => |i| i.value == value,
-        else => false,
-    };
-}
-
-fn compareStrings(object: Object, value: []const u8) bool {
-    return switch (object) {
-        .string => |s| std.mem.eql(u8, s.value, value),
         else => false,
     };
 }
@@ -423,12 +430,21 @@ test "eval strings" {
     const data = [_]TestData{
         .{ .input = "let foo = \"Hello, World!\"", .value = "Hello, World!" },
         .{ .input = "\"this is a string\"", .value = "this is a string" },
+        .{ .input = "\"Hello, \" + \"World!\"", .value = "Hello, World!" },
+        .{ .input = "\"this\" + \" is a \" + \"string\"", .value = "this is a string" },
     };
 
     for (data) |d| {
         var result: Object = testEval(std.testing.allocator, d.input).?;
         defer result.deinit();
-        try std.testing.expect(compareStrings(result, d.value));
+        switch (result) {
+            .string => |s| try std.testing.expectEqualSlices(u8, s.value, d.value),
+            else => {
+                std.debug.print("Error: Expected string, got:\n", .{});
+                try result.print(std.io.getStdErr().writer());
+                return error.WrongResultType;
+            },
+        }
     }
 }
 
@@ -468,7 +484,7 @@ test "eval functions" {
             ,
             .value = 7,
         },
-        // TDOO: Memory leak on this one:
+        // TDOO: Memory leak or double-free on this one:
         //.{
         //    .input =
         //    \\let adder = fn(x) { fn(y) { x + y } };
