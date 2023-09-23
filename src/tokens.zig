@@ -8,6 +8,7 @@ pub const TokenType = enum {
     IDENT,
     INT,
     STRING,
+    BUILTIN,
 
     // Operators
     EQUAL,
@@ -39,6 +40,9 @@ pub const TokenType = enum {
     TRUE,
     FALSE,
     EXIT,
+
+    // Builtins
+    //LEN,
 };
 
 pub const Token = struct {
@@ -64,11 +68,23 @@ pub const Keywords = [_]Token{
     Token.init(.EXIT, "exit"),
 };
 
-/// Check for keywords and return the keyword type, or identifier
+pub const Builtins = [_]Token{
+    Token.init(.BUILTIN, "len"),
+    Token.init(.BUILTIN, "min"),
+    Token.init(.BUILTIN, "max"),
+};
+
+/// Check for keywords and builtins and return the type, or identifier
 pub fn lookupIdentifier(ident: []const u8) TokenType {
     for (Keywords) |keyword| {
         if (std.mem.eql(u8, ident, keyword.literal)) {
             return keyword.kind;
+        }
+    }
+
+    for (Builtins) |builtin| {
+        if (std.mem.eql(u8, ident, builtin.literal)) {
+            return .BUILTIN;
         }
     }
 

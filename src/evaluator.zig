@@ -11,6 +11,7 @@ const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const TokenType = @import("tokens.zig").TokenType;
 const Scope = @import("scope.zig").Scope;
+const Builtins = @import("builtins.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -216,6 +217,10 @@ pub const Evaluator = struct {
             return ident;
         }
 
+        if (Builtins.makeBuiltin(identifier.value)) |builtin| {
+            return obj.makeBuiltin(builtin);
+        }
+
         return self.makeError("Unknown identifier: {s}", .{identifier.value});
     }
 
@@ -361,6 +366,18 @@ fn compareBooleans(object: Object, value: bool) bool {
     };
 }
 
+fn compareObjects(expected: Object, received: Object) bool {
+    //if (expected != received) // Check type of object first
+    //    return false;
+
+    return switch (expected) {
+        .integer => |i| received == .integer and i.value == received.integer.value,
+        .boolean => |b| received == .boolean and b.value == received.boolean.value,
+        .string => |s| received == .string and std.mem.eql(u8, s.value, received.string.value),
+        else => false,
+    };
+}
+
 // ---------------- Unit Tests ----------------
 
 test "eval integers" {
@@ -498,6 +515,34 @@ test "eval functions" {
     for (data) |d| {
         var result: Object = testEval(std.testing.allocator, d.input).?;
         std.testing.expect(compareIntegers(result, d.value)) catch {
+            // NOTE: stderr and stdout are only available if doing 'zig test src/evaluator.zig'
+            //       rather than 'zig build test-evaluator'
+            std.debug.print("Test failed: ", .{});
+            try result.print(std.io.getStdErr().writer());
+            return error.TestExpectedEqual;
+        };
+        result.deinit();
+    }
+}
+
+test "eval built-ins" {
+    std.testing.log_level = std.log.Level.debug;
+    const TestData = struct {
+        input: []const u8,
+        value: Object,
+    };
+
+    const alloc = std.testing.allocator;
+    const data = [_]TestData{
+        .{ .input = "len(\"\")", .value = obj.makeInteger(0) },
+        .{ .input = "len(\"abc\")", .value = obj.makeInteger(3) },
+        .{ .input = "len(\"Hello, World!\")", .value = obj.makeInteger(13) },
+        .{ .input = "len(1)", .value = obj.makeError(alloc, "Cannot call 'len' on integers") },
+    };
+
+    for (data) |d| {
+        var result: Object = testEval(std.testing.allocator, d.input).?;
+        std.testing.expect(compareObjects(result, d.value)) catch {
             // NOTE: stderr and stdout are only available if doing 'zig test src/evaluator.zig'
             //       rather than 'zig build test-evaluator'
             std.debug.print("Test failed: ", .{});

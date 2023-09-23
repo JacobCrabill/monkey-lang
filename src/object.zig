@@ -6,6 +6,7 @@ const ast = struct {
     usingnamespace @import("ast/expressions.zig");
 };
 
+const Builtins = @import("builtins.zig");
 const Scope = @import("scope.zig").Scope;
 
 const ArrayList = std.ArrayList;
@@ -20,6 +21,7 @@ pub const ObjectType = enum(u8) {
     string,
     function,
     error_msg,
+    builtin,
 };
 
 pub const Object = union(ObjectType) {
@@ -30,6 +32,7 @@ pub const Object = union(ObjectType) {
     string: String,
     function: Function,
     error_msg: ErrorMessage,
+    builtin: BuiltinFn,
 
     pub fn print(self: Self, stream: anytype) !void {
         switch (self) {
@@ -39,6 +42,7 @@ pub const Object = union(ObjectType) {
             .string => |s| try stream.print("{s}", .{s.value}),
             .function => |f| try f.print(stream),
             .error_msg => |e| try e.print(stream),
+            .builtin => |b| try b.print(stream),
         }
     }
 
@@ -156,6 +160,20 @@ pub const ErrorMessage = struct {
     }
 };
 
+pub const BuiltinFn = struct {
+    const Self = @This();
+    builtin: Builtins.BuiltinFn,
+
+    pub fn init() Self {
+        return .{};
+    }
+
+    pub fn print(self: Self, stream: anytype) !void {
+        _ = self;
+        _ = stream;
+    }
+};
+
 pub fn makeInteger(value: i64) Object {
     return Object{
         .integer = Integer{ .value = value },
@@ -168,9 +186,21 @@ pub fn makeBoolean(value: bool) Object {
     };
 }
 
+pub fn makeError(alloc: Allocator, value: []const u8) Object {
+    return Object{
+        .error_msg = ErrorMessage.init(alloc, "{s}", .{value}),
+    };
+}
+
 pub fn makeString(value: []const u8) Object {
     return Object{
         .string = String{ .value = value },
+    };
+}
+
+pub fn makeBuiltin(builtin: Builtins.BuiltinFn) Object {
+    return Object{
+        .builtin = BuiltinFn{ .builtin = builtin },
     };
 }
 
