@@ -78,6 +78,37 @@ pub const Identifier = struct {
     }
 };
 
+pub const Builtin = struct {
+    const Self = @This();
+    token: Token,
+    value: []const u8,
+
+    pub fn deinit(_: Self) void {}
+
+    pub fn init(token: Token) Self {
+        return .{
+            .token = token,
+            .value = token.literal,
+        };
+    }
+
+    pub fn clone(self: Self) Self {
+        return self;
+    }
+
+    pub fn cloneExpression(self: Self) Expression {
+        return Expression{ .identifier = self.clone() };
+    }
+
+    pub fn tokenLiteral(self: Self) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn print(self: Self, stream: anytype) WriteError!void {
+        try stream.print("{s}", .{self.value});
+    }
+};
+
 pub const IntegerLiteral = struct {
     const Self = @This();
     token: Token,
