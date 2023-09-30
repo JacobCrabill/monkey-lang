@@ -76,6 +76,25 @@ pub fn Repl(comptime InStream: type, comptime OutStream: type) type {
             }
         }
 
+        pub fn runOnce(self: *Self, input: []const u8) !void {
+            var scope = Scope.init(self.alloc);
+            var evaluator = Eval.Evaluator.init(self.alloc);
+            defer evaluator.deinit();
+
+            var lex = Lexer.init(input);
+            var parser = Parser.init(self.alloc, &lex);
+            defer parser.deinit();
+
+            // Parse and print the statement(s)
+            var prog: Program = try parser.parseProgram();
+            defer prog.deinit();
+
+            const result = evaluator.evalProgram(prog, &scope);
+            evaluator.reset();
+            try result.print(self.output);
+            try self.output.print("\n", .{});
+        }
+
         fn nextLine(self: *Self) !?[]const u8 {
             var line = (try self.input.readUntilDelimiterOrEofAlloc(
                 self.alloc,
