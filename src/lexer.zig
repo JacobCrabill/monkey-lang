@@ -82,6 +82,10 @@ pub const Lexer = struct {
                 tok.kind = .STRING;
                 tok.literal = self.readString();
             },
+            '#' => {
+                tok.kind = .HASH;
+                tok.literal = self.readLine();
+            },
             else => {
                 if (isLetter(self.ch)) {
                     tok.literal = self.readIdentifier();
@@ -97,6 +101,14 @@ pub const Lexer = struct {
 
         self.readChar();
         return tok;
+    }
+
+    fn readLine(self: *Self) []const u8 {
+        const start = self.cursor;
+        while (!(self.ch == '\n' or self.ch == 0)) {
+            self.readChar();
+        }
+        return self.input[start..self.cursor];
     }
 
     fn skipWhitespace(self: *Self) void {
@@ -197,6 +209,8 @@ test "keywords and identifiers" {
         \\    return false;
         \\}
         \\
+        \\# Comment
+        \\
         \\10 == 10;
         \\10 != 9;
         \\"foobar"
@@ -269,6 +283,7 @@ test "keywords and identifiers" {
         Token.init(.FALSE, "false"),
         Token.init(.SEMI, ";"),
         Token.init(.RBRACE, "}"),
+        Token.init(.HASH, "# Comment"),
         Token.init(.INT, "10"),
         Token.init(.EQ, "=="),
         Token.init(.INT, "10"),
